@@ -1,0 +1,30 @@
+{
+  "current": [
+    {
+      "name": "Sample Event Wish — Character",
+      "kind": "character",
+      "featured": ["Featured 5★", "Featured 4★ A", "Featured 4★ B"],
+      "version": "0.0",
+      "start": null,
+      "end": null
+    },
+    {
+      "name": "Sample Event Wish — Weapon",
+      "kind": "weapon",
+      "featured": ["Featured 5★ Weapon", "Featured 4★ Weapon"],
+      "version": "0.0",
+      "start": null,
+      "end": null
+    }
+  ],
+  "upcoming": [
+    {
+      "name": "Sample Upcoming Banner",
+      "kind": "character",
+      "featured": ["Upcoming 5★"],
+      "version": "0.0",
+      "start": null,
+      "end": null
+    }
+  ]
+}

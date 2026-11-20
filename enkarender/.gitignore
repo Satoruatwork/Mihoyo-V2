@@ -1,0 +1,17 @@
+# Generated demo output
+example/*.png
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Test / tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Runtime cache home (if created inside the tree)
+.enkarender/

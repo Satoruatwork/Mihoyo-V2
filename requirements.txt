@@ -1,0 +1,30 @@
+# Telegram framework (async)
+python-telegram-bot[all]==21.9
+
+# Public Genshin data sources (async wrappers by seriaati)
+enka==2.5.20
+akasha-py==0.3.0
+
+# HoYoLAB API wrapper — redeems gift codes on each user's linked account (/redeem)
+genshin==1.7.28
+
+# Encryption at rest for stored HoYoLAB session cookies (/hoyologin)
+cryptography==49.0.0
+
+# Primary datastore (Upstash-compatible Redis, async)
+redis==8.0.1
+
+# Configuration
+pydantic==2.10.4
+pydantic-settings==2.7.1
+
+# Rendering
+Pillow==11.1.0
+
+# HTTP (used by API wrappers / fallbacks)
+aiohttp==3.11.11
+
+# --- Development / testing ---
+pytest==8.3.4
+pytest-asyncio==0.25.2
+fakeredis==2.36.2

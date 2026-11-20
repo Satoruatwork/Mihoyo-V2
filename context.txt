@@ -1,0 +1,332 @@
+===============================================================================
+ PROJECT CONTEXT — Mihoyo- (Genshin Impact Telegram Bot)
+ Maintained by the recovery/QA agent. Update after every change/commit/push.
+===============================================================================
+
+-------------------------------------------------------------------------------
+PROJECT OVERVIEW
+-------------------------------------------------------------------------------
+A premium, Genshin Impact-only Telegram bot (python-telegram-bot v21.9, async).
+Links a player's Genshin UID and retrieves public account info, showcased
+characters + full builds, Spiral Abyss, Imaginarium Theater, banners, and build
+recommendations via public APIs (Enka.Network via `enka`, Akasha via akasha.cv).
+No Honkai/ZZZ features. This is the backend-foundation phase; premium UI/image
+layouts come later. Business logic is separated from rendering; all external
+calls are async and cached.
+
+-------------------------------------------------------------------------------
+REPOSITORY STRUCTURE
+-------------------------------------------------------------------------------
+bot/
+  main.py            entrypoint: builds Application, wires handlers, run_polling
+  config.py          pydantic-settings; reads .env (BOT_TOKEN, REDIS_URL, ...)
+  app_context.py     AppContext dependency container (built in post_init)
+  commands/          thin Telegram handlers -> services
+  services/          business logic (no Telegram/rendering)
+  api/               enka_client.py (Enka wrapper), akasha_client.py (raw aiohttp
+                     to akasha.cv; the pip akasha-py client is NOT used — 403 UA)
+  database/          redis_client.py (async pool, TLS upgrade), store.py (RedisStore)
+  cache/             redis_cache.py (JSON, TTL, prefix "cache")
+  renderer/          Renderer abstraction + Pillow backend (card layouts)
+  models/            framework-agnostic dataclasses + serialize.py (cache <-> model)
+  translations/      i18n.py + locales/*.json (en default, per-key fallback)
+  assets/            loader.py (dynamic, placeholder fallback) + bootstrap.py (startup
+                     download of card template + Noto font)
+  utils/             logging, errors, callbacks (callback_data encode/decode), text
+tests/               pytest suite (fakeredis; no network)
+scripts/             run_local.sh, watchdog.sh
+data/                (gitkeep; sqlite legacy paths gitignored)
+AUDIT_REPORT.md      full audit with severity levels (see it for details)
+
+Datastore: Redis (Upstash-compatible) is the primary source of truth. Degrades
+gracefully if Redis is briefly unavailable; the bot never crashes on API/Redis
+failures, private profiles, empty showcases, rate limits, or timeouts.
+
+-------------------------------------------------------------------------------
+CURRENT FEATURES (working)
+-------------------------------------------------------------------------------
+Account: /genshinlogin <UID>, /genshinlogout, /myuid, /myinfo
+Characters: /mycharacters (/myc) with inline paging + callback nav, /inspect <UID>
+Abyss: /abyss, /preabyss, /abysscard, /preabysscard
+Theater: /theater, /theatercard
+Misc: /banner, /build_guide, /settings, /language, /stats, /start, /help
+i18n: en/es/it/ja/zh (English default, per-key fallback)
+Ownership gate on inline keyboards; interaction tracking; group tracking.
+
+-------------------------------------------------------------------------------
+KNOWN BUGS (open) — see AUDIT_REPORT.md for full detail
+-------------------------------------------------------------------------------
+[CRITICAL] C1  Live BOT_TOKEN committed in .env.example + git history.
+               ACTION REQUIRED BY OWNER: rotate via @BotFather, blank the value,
+               purge history. Not auto-fixable by the agent. STILL OPEN.
+[MEDIUM]   M1  assets/loader.py resolve() couldn't find asset keys whose stem
+               contains a dot. FIXED (session 2).
+[LOW]      L1  abyss_service max_floor: chamber==0 degraded to floor-only. FIXED.
+[LOW]      L2  loader force-resizes assets to square (distorts non-square art). OPEN.
+[LOW]      L3  pillow_renderer getpixel[:3] latent fragility (safe today). OPEN.
+[LOW]      L4  characters.py CALLBACK_PREFIX="gsc" dead constant. FIXED (removed).
+[LOW]      L5  akasha-py dependency declared but unused. OPEN.
+[LOW]      N1  akasha_client top_percent dropped rank==0 via truthiness. FIXED.
+[LOW]      N2  account.py /myinfo abyss line hidden when floor/chamber==0. FIXED.
+
+-------------------------------------------------------------------------------
+FIX HISTORY
+-------------------------------------------------------------------------------
+2026-10-16  Session 11 (character showcase redesign — approved preview implemented):
+  bot/renderer/character_card_renderer.py now draws the whole 1536x864 card in code (no baked
+  template to paint over): botanical hero with splash art, element/weapon tag, serif name,
+  constellation rail (real icons, locked states), level/C/friendship facts; weapon card with
+  R/ATK/secondary chips; 8-row attributes; talents; five artifact rows (+level, main stat,
+  4 substats, CRIT highlighted); set bonus panel (active/inactive per piece count, other sets
+  listed; descriptions only if data provides them); footer with player/UID, CRIT Value and
+  "Built with Passion · Powered by Lauma". Same public API (get_card_renderer().render(data)).
+  - Portrait fit: solid-alpha (>128) bounds scaled to 787px tall, alpha mass centred at x=314;
+    never stretched; character_adjustments.json still applies on top. Icons contain-fit.
+  - Line icons: bot/renderer/icons/*.png (alpha masks, tinted at render time).
+  - Fonts: Cormorant Garamond (serif) added to bootstrap download beside Noto Sans SC.
+  - CardData: additive fields (constellations, player, crit_value, levels, set count/others,
+    max_level, weapon_type). SetInfo.name is now the bare set name (count is its own field).
+  - Bug fix: weapon ATK%/HP%/DEF% secondaries rendered as flat ("41" for 41.3%) in both
+    renderers; only EM is flat. Regression assert added.
+  - slot_manager / templates/character_card.svg / template_source are no longer used by the
+    card renderer (kept; still covered by their own tests).
+  Verified: scripts/render_cards.py (5 chars incl. Lauma) + live Enka UIDs (Kazuha C0, Jean C1,
+  Bennett C6, Ganyu, Yelan, Nahida) rendered and inspected. Full suite 280 passed.
+2026-07-23  Session 10 (fix character-card renderer masking/layering/positioning):
+  The live card renderer (bot/renderer/pillow_renderer.py) drew live values over the baked
+  template placeholders -> doubling: two Levels, "Lv. Lv. 50", duplicated stars (header/top-
+  bar rarity/weapon/artifacts), extra "S" before set name, empty weapon type box, character
+  pasted over the placeholder silhouette (ellipse mask left gaps in the pill frame).
+  Downloaded the template + used a coord-grid + marker overlay to read exact slot positions.
+  Fixes (template/layout NOT changed):
+   - Portrait: pill (rounded-rect/stadium) mask matching the frame window + opaque backdrop
+     that ERASES the baked "CHARACTER IMAGE PLACEHOLDER"; art cover-fills (PORTRAIT_FILL 1.0).
+     PORTRAIT_BOX -> (158,116,344,596).
+   - Masking: erase every baked placeholder with locally-sampled panel colour (dark top bar
+     vs cream body): level "/", top-bar rarity stars, weapon name, weapon stars (moved to
+     y226), unused 2nd type box, "R" box (dark), "Lv. /", SET NAME (widened -> no stray "S"),
+     artifact main/stars/substats, talent "/".
+   - _paste_icon gained erase= (fills the icon circle first) so weapon/talent/artifact/set
+     transparent icons no longer sit on baked emblems.
+   - Weapon: single "Lv. 50", "R1" centered in dark box, box2 removed, single stars.
+   - Top bar: single Level, Constellation as bare number in the circle, single rarity stars.
+   - Set: name left-aligned at (615,523), drawn once; SET_ICON_BOX -> (774,500,30) top-right.
+  Verified by rendering a test card + zoomed crops (no doubling; char inside frame). Tests:
+  +test_render_full_card_with_portrait_and_icons_is_correct_size. Full suite 127 passed.
+
+2026-07-23  Session 9 (layer-based JSON-driven rendering engine):
+  Added enkarender/enkarender/layered/ — a Photoshop-style layered renderer built on the
+  enkarender foundation (reuses FontManager, CacheManager, DrawingUtils). A card = ordered
+  stack of independent layers, each positioned entirely from a JSON layout (no coords in code).
+   - layout.py: LayerSpec (x,y,w,h,align,font,font_size,color,rotation,scale,opacity,z + props),
+     Layout (base_width/height + layers), JSON load, per-factor resolution scaling, hex/rgba
+     color parse.
+   - assets.py: LayeredAssetManager auto-locates assets from backgrounds/frames/panels/icons/
+     weapons/artifacts/elements/effects/characters/fonts (+ ext probing) with in-memory LRU
+     cache + placeholder fallback; compose helpers (contain_fit/opacity/rotation/alpha-composite).
+   - layers.py: 10 required renderer classes (Background/Panel/Character/Weapon/Artifact/Talent/
+     Stat/Text/Effect/Footer) + generic ImageLayerRenderer for frame/element/overlay; each draws
+     only its layer; REGISTRY maps type->renderer (register_layer for new types).
+   - engine.py: LayeredRenderer builds canvas at any target_width, stacks layers by z, delegates,
+     exports PNG. No hardcoded coords/assets.
+   - layouts/profile.json: full-stack sample layout. example/layered_demo.py renders it offline
+     at 1500px (placeholders) -> 21 layers composited OK.
+  New template = new JSON + assets, zero code change (tested). Tests: tests/test_layered.py (8).
+  enkarender suite 21 passed. Bot untouched. See enkarender/README.md "Layer-based renderer".
+
+2026-07-22  Session 8 (/mycharacters single-message nav + reliability + perf):
+  Was: list = TEXT message; clicking a char sent a NEW photo message; back deleted it.
+  Reliability bug: on_callback called query.answer() AFTER get_showcase, so on a cache miss
+  (enka+akasha fetch) Telegram rejected the late answer as "query too old" -> error.generic
+  ("Oh no..."). Telegram can't edit text<->photo, so single-message requires a media list.
+  Changes (bot/commands/characters.py rewrite of cmd+callback layer; UI/captions unchanged):
+   - /mycharacters + /inspect now send ONE photo message: banner (existing assets/ui/
+     welcome.jpg, cached by file_id) + list text as caption + same buttons.
+   - Clicking a char EDITS that message via editMessageMedia (card + caption + Back) — no new
+     message. Back edits media back to the banner. Paging uses editMessageCaption only.
+     Legacy text messages fall back gracefully.
+   - Answer callback query IMMEDIATELY (first line of on_callback) -> fixes the intermittent
+     "query too old" error + stops the button spinner instantly.
+   - Rendered cards cached by Telegram file_id ((uid,char,lang) TTL+LRU _TTLFileCache) ->
+     re-opening reuses the uploaded image, no re-render/re-upload. Banner file_id cached too.
+   - character_service: added tier-1 in-process showcase memory cache (TTL+LRU) in front of
+     Redis -> navigation instant even when Redis is DOWN (no per-click round-trip/refetch).
+   - Per-user nav state in context.user_data["myc"] (uid/page/char). Memory bounded (TTL+LRU).
+   - Timing logs (bot.perf): callback received/processed, redis_read, showcase_get, cache
+     HIT/MISS (image + showcase memory), render, total.
+  NOTE (honest): rankings still fetched with the showcase (parallel + cached), not split out.
+  Only visual change: a banner image now sits above the list text (required for one-message).
+  Tests: +tests/test_characters_nav.py (4) + memory-cache test. Full suite 126 passed.
+
+2026-07-22  Session 7 (make bot work + smooth despite dead Redis):
+  User's Upstash Redis still unreachable; asked to fix regardless + make responses smooth.
+  Can't reach their DB, so made the bot NOT depend on Redis being up:
+   - bot/database/local_store.py: LocalStore (JSON file, async lock, atomic flush) mirroring
+     account/settings methods. Keeps logins/settings working when Redis is down.
+     Path from settings.local_store_file (data/local_store.json; gitignored).
+   - store.py: RedisStore gained a _CircuitBreaker + optional fallback. Account-critical
+     methods (link_uid/unlink_uid/get_uid/set|get_language/set|get_setting/get_all_settings)
+     now: if breaker open -> use fallback (instant, skip dead Redis); try Redis else record
+     failure + use fallback (link_uid no longer errors when fallback present). First failure
+     opens breaker for redis_breaker_cooldown (30s) so subsequent ops are instant.
+   - config: redis_breaker_cooldown, local_store_path + local_store_file property.
+   - app_context: builds LocalStore, passes fallback + cooldown to RedisStore.
+   - common.py: with_action decorator (typing/upload_photo chat action) so heavy commands
+     feel instant; applied to my_info, my_characters, inspect, abyss/preabyss(+cards),
+     theater(+card).
+  DURABILITY CAVEAT: local_store.json is on the container FS — survives restarts, NOT
+  redeploys on Railway unless a volume is mounted at data/. Real durable fix is still to
+  repair REDIS_URL (see scripts/check_redis.py). Tests: +3 (fallback/breaker/persistence).
+  Full suite 121 passed.
+
+2026-07-22  Session 6 (login error + slowness):
+  Symptom: /genshinlogin replied error.generic ("Oh dear...") and all responses very slow.
+  Root cause: Redis unreachable/degraded. link_uid re-raised bare RedisError -> guard showed
+  generic error; and socket timeouts (10s) x 3 retries meant each failed Redis op hung ~30s
+  (login did get_uid + link_uid ≈ 60s), on top of per-update tracking Redis calls blocking
+  every command. THE UNDERLYING REDIS CONNECTION MUST BE FIXED ON RAILWAY (see startup logs:
+  "Redis connection could not be verified" / self-test). Code fixes made it fast + clear:
+   - errors.py: new DatastoreUnavailable(BotError, i18n_key error.datastore_unavailable);
+     store.link_uid now raises it (clear "couldn't save, try again" msg, not generic).
+     en.json: added error.datastore_unavailable (per-key fallback covers other locales).
+   - Fast-fail Redis: config redis_connect_timeout/redis_socket_timeout=4.0, redis_retries=1
+     (env-overridable); redis_client uses them + backoff cap 1; app_context passes them.
+     Dead Redis now fails in ~4s/op instead of ~30s.
+   - tracking.track: register_interaction/register_group now fire-and-forget via
+     application.create_task -> never block the command reply on Redis.
+  Tests: +test_link_uid_raises_clear_error_when_redis_down. Full suite 119 passed.
+
+2026-07-22  Session 5 (rendering-engine foundation):
+  Added enkarender/ — an independent, self-contained rendering-engine package (its own
+  README, ARCHITECTURE.md, pyproject, tests, offline demo). Architecturally inspired by
+  PaiGramTeam/EnkaNetwork.py (strict client/http/cache/model/assets layering; external
+  cached assets; hash-map name localization) but original code/structure/templates/layouts.
+  Layers: config/enums/exceptions/logging; api (pooled HttpTransport + EnkaClient raw
+  payloads); models (dataclasses + injectable-resolver parser); assets (CacheManager 3-tier,
+  Downloader, ResourceLoader, AssetManager); fonts (central FontManager); render (DrawingUtils
+  +Theme, Canvas composer, card-agnostic RenderEngine); templates (Component/Template ABCs +
+  RenderContext + registry + Profile/Build layouts); cards (CardBuilder ABC + registry +
+  Profile/Build builders). Facade: EnkaRenderer. Offline demo renders profile.png+build.png.
+  Independence: rendering⊥API, data⊥rendering, templates⊥I/O, engine⊥card-type. New card =
+  new Template + CardBuilder (+register), zero engine change. Does NOT touch bot/. Tests: 13
+  passed (cache/fonts/engine/cards/parser); bot suite still 118 passed. See enkarender/ARCHITECTURE.md.
+
+2026-07-22  Session 4 (performance optimization):
+  Bottlenecks: (B1) enka+akasha fetched sequentially; (B2/B3) new aiohttp session per
+  artwork icon and per akasha call (TCP+TLS handshake each time); (B4) card template
+  re-decoded from disk every render; (B5) banners/build_guides JSON re-read+parsed every
+  command on the loop; (B6) sync Pillow render ran on the event loop (blocked all users);
+  (B7) no startup warmup.
+  Fixes (behavior preserved):
+   - character_service._fetch_concurrently: enka+akasha via asyncio.gather (enka error
+     still propagates, akasha best-effort). Fresh fetch ~1100ms -> ~600ms.
+   - artwork_service + akasha_client: single pooled aiohttp session (TCPConnector) reused,
+     closed via AppContext.aclose() on shutdown; AppContext gained `akasha` field.
+   - pillow_renderer._template_base: template decoded once, .copy() per render.
+   - banner_service/build_service: JSON read+parsed once, cached in memory.
+   - characters/abyss/theater: render via asyncio.to_thread (off event loop) + timing;
+     profile-card portrait+icons prefetched concurrently.
+   - startup warmup: i18n.preload_locales() + renderer.warmup() in _post_init.
+   - bot/utils/timing.py (timed/atimed -> bot.perf logger); guard() logs "<cmd> total: Nms".
+  Tests: tests/test_performance.py (7). Full suite 118 passed.
+  External limits: enka/akasha API latency dominates fresh fetches; ~170ms Pillow render is
+  CPU-bound (now off-loop); enka library opens its own per-call client. See
+  PERFORMANCE_REPORT.md.
+
+2026-07-22  Session 3 (deployment debug):
+  ROOT CAUSE of "deploys but no commands / crashes after switching Upstash DB":
+  redis.from_url() raises ValueError (NOT RedisError) for a non-redis scheme — e.g. the
+  Upstash REST URL https://<db>.upstash.io. It was called eagerly in build_app_context
+  (RedisStore(redis.client)) inside _post_init; the uncaught ValueError propagated out of
+  run_polling BEFORE the updater started -> bot never polled. Old DB worked because its
+  URL was a proper rediss:// Redis-protocol URL.
+  FIXES (architecture preserved):
+   - redis_client.py: normalize_url (trim/quote-strip, bare host, redis->rediss upgrade);
+     new validate_redis_url (rejects REST/https + bad schemes with actionable msg);
+     mask_url; verify() catches any exception + traceback; new self_test() PING/WRITE/
+     READ/DELETE with per-op logging.
+   - main.py: _validate_environment fails fast w/ clear CRITICAL on missing/invalid
+     BOT_TOKEN or REDIS_URL; _post_init rewritten resilient + 5 logged steps (assets,
+     container, verify+self_test, store round-trip of user id/uid/language/settings w/
+     cleanup, command menu), tracebacks everywhere, always installs AppContext, logs
+     "Bot started successfully" as last line before polling; main() wraps run_polling
+     with fatal/shutdown logging; handlers still registered before polling.
+   - Dockerfile: PYTHONDONTWRITEBYTECODE, mkdir assets/fonts+characters, documented
+     that bot/ carries translations+resources and env vars come from the platform.
+   - tests/test_redis_client.py (12 tests). Full suite 111 passed.
+  ACTION REQUIRED ON RAILWAY: set REDIS_URL to the Upstash *Redis* URL
+  (rediss://default:<pw>@<host>:6379), NOT the REST URL. See DEPLOYMENT_FIX_REPORT.md.
+
+2026-07-22  Session 2 (debug/QA agent):
+  [M1] loader.resolve() now strips a trailing segment only when it's a known image
+       extension, so dotted stems (e.g. char_1.2) resolve. +1 regression test.
+  [L1] abyss_service.get_abyss max_floor rewritten with explicit is-not-None checks;
+       chamber==0 (e.g. "9-0") is preserved. +new tests/test_abyss_service.py (4 tests).
+  [L4] Removed dead/misleading CALLBACK_PREFIX="gsc" constant from characters.py.
+  [N1] akasha_client top_percent: (rank and total) -> (rank is not None and total is not
+       None and total != 0); preserves rank==0, still guards divide-by-zero.
+  [N2] account.py /myinfo abyss line: (floor and chamber) -> explicit is-not-None checks.
+  Files: bot/assets/loader.py, bot/services/abyss_service.py, bot/commands/characters.py,
+         bot/api/akasha_client.py, bot/commands/account.py, tests/test_asset_loader.py,
+         tests/test_abyss_service.py (new).
+  Verified: import OK; full suite 99 passed (94 + 5 new); akasha edge cases checked
+  (total=0 -> None no crash; rank=0 -> 0.0 preserved).
+
+2026-07-22  [HIGH H1] enka_client._map_weapon rewritten.
+  Root cause: read main_stat/sub_stat/type attrs that don't exist on enka 2.5.20's
+  Weapon (fields: ..., stats: list[Stat]); item_type is always "ITEM_WEAPON".
+  Result: weapon_type + main/sub stat were always None (weapon type never rendered).
+  Fix: read stats list (main = FIGHT_PROP_BASE_ATTACK, order-independent; sub = the
+  other), derive weapon class from icon filename (UI_EquipIcon_<Class>_...).
+  Files: bot/api/enka_client.py, tests/test_enka_mapping.py (+3 regression tests).
+  Verified: reproduced None->fixed; 94 passed; cache JSON round-trip preserves fields.
+
+-------------------------------------------------------------------------------
+TESTING HISTORY
+-------------------------------------------------------------------------------
+2026-07-22  Clean venv (Python 3.13.13) + pip install -r requirements.txt: OK.
+2026-07-22  `python -c "import bot.main"`: OK.
+2026-07-22  Baseline `pytest`: 91 passed.
+2026-07-22  Dependency-graph build with fakeredis (build_app_context): OK
+            (redis.verify() returns False only because no live Redis — expected).
+2026-07-22  H1 reproduction (real enka Weapon via model_construct): all fields None.
+2026-07-22  H1 post-fix direct checks: Sword / Base ATK 674.0 / CRIT DMG 44.1;
+            order-independence, each weapon class from icon, empty-stats, None-weapon
+            — ALL ASSERTIONS PASSED.
+2026-07-22  Post-fix `pytest`: 94 passed (91 baseline + 3 new, no regressions).
+2026-07-22  Cache round-trip (showcase_to_dict -> json -> showcase_from_dict):
+            weapon fields preserved (Sword/Base ATK/674.0/CRIT DMG/44.1).
+2026-07-22  Session 2 post-fix `pytest`: 99 passed (94 + 5 new, no regressions).
+2026-07-22  Session 2 import smoke (`import bot.main`): OK.
+
+-------------------------------------------------------------------------------
+DEPLOYMENT NOTES
+-------------------------------------------------------------------------------
+Requires: BOT_TOKEN (@BotFather) and REDIS_URL (Upstash; redis:// auto-upgraded to
+rediss://) in .env. Run: `python -m bot.main`. Startup downloads card template +
+Noto font once (best-effort; degrades to placeholder/default font). No Docker file
+present in repo. NOTE: no live Redis or live Telegram connection was made during
+this audit (fakeredis + offline reproduction only) — a live smoke test against a
+real BOT_TOKEN/REDIS_URL still needs to be run by the owner in the target env.
+
+-------------------------------------------------------------------------------
+FUTURE TASKS
+-------------------------------------------------------------------------------
+- OWNER: rotate leaked BOT_TOKEN and purge from history (C1).
+- Optionally fix M1 (dotted asset keys) and L1-L5 if they become relevant.
+- Surface the now-populated weapon main/sub stats in the profile card text/layout
+  (data is available but not yet displayed).
+- Live smoke test against real Telegram + Upstash Redis.
+
+-------------------------------------------------------------------------------
+SESSION LOG
+-------------------------------------------------------------------------------
+2026-07-22  Session 1 (recovery/QA agent):
+  - Indexed repo (README, requirements, .env.example, gitignore, git log).
+  - Installed deps in venv; import + baseline test smoke (91 passed).
+  - Fan-out audit of all modules; produced AUDIT_REPORT.md.
+  - Found + reproduced HIGH weapon-mapping bug against installed enka 2.5.20.
+  - Fixed enka_client._map_weapon; added 3 regression tests; 94 passed.
+  - Verified cache round-trip. Created context.txt + AUDIT_REPORT.md.
+  - Committed (see Fix History / git log for hash) and attempted push.
+===============================================================================

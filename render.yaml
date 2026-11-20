@@ -1,0 +1,11 @@
+services:
+  - type: worker
+    name: mihoyo-bot
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: REDIS_URL
+        sync: false

@@ -1,0 +1,6 @@
+aiohttp>=3.9
+Pillow>=10.0
+
+# dev / tests
+pytest>=8
+pytest-asyncio>=0.23
