@@ -1,0 +1,30 @@
+{
+  "hu tao": {
+    "fig": "01",
+    "affiliation": "Wangsheng Funeral Parlor",
+    "epithet": "Fragrance in Thaw",
+    "constellation_name": "Papilio Charontis",
+    "region": "Liyue"
+  },
+  "raiden shogun": {
+    "fig": "02",
+    "affiliation": "Inazuma Shogunate",
+    "epithet": "Plane of Euthymia",
+    "constellation_name": "Imperatrix Umbrosa",
+    "region": "Inazuma"
+  },
+  "furina": {
+    "fig": "03",
+    "affiliation": "Opera Epiclese",
+    "epithet": "Endless Solo of Solitude",
+    "constellation_name": "Animula Choragi",
+    "region": "Fontaine"
+  },
+  "zhongli": {
+    "fig": "04",
+    "affiliation": "Wangsheng Funeral Parlor",
+    "epithet": "Vago Mundo",
+    "constellation_name": "Lapis Dei",
+    "region": "Liyue"
+  }
+}

@@ -305,13 +305,23 @@ async def _render_card_png(app: AppContext, character: Character, player: Player
             app.artwork_service.get_images(icon_urls),
         )
     async with atimed("render.profile_card"):
-        return await asyncio.to_thread(
-            app.renderer.render_profile_card,
-            CharacterCardContext(
-                language=lang, character=character, player=player,
-                portrait=portrait, icons=icons,
-            ),
-        )
+        try:
+            data = from_character(
+                character, portrait=portrait, icons=icons,
+                glow=theme_for(character.element)["glow"],
+                adjustment=adjustment_for(character.id), player=player,
+            )
+            return await asyncio.to_thread(get_card_renderer().render, data)
+        except Exception:  # noqa: BLE001 - degrade to the legacy renderer, loudly
+            logger.error("[RENDERER] New renderer failed, using fallback renderer",
+                         exc_info=True)
+            return await asyncio.to_thread(
+                app.renderer.render_profile_card,
+                CharacterCardContext(
+                    language=lang, character=character, player=player,
+                    portrait=portrait, icons=icons,
+                ),
+            )
 
 
 async def _edit_media(query, photo: str | bytes, caption: str, markup: InlineKeyboardMarkup):

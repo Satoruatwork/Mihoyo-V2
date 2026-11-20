@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from bot.renderer import flavor as _flavor
 from bot.renderer.card_layout import canonical_element
 from bot.renderer.image_fitter import DEFAULT_ADJUSTMENT, Adjustment
 
@@ -37,6 +38,23 @@ def _num(value: float | None) -> str:
 
 def _pct(value: float | None) -> str:
     return "--" if value is None else f"{value:.1f}%"
+
+
+@dataclass(slots=True)
+class FlavorInfo:
+    """Studio-card dressing that Enka.Network does not report.
+
+    Populated by :func:`from_character` from the bundled ``bot/resources/card_flavor.json``
+    (and ``weapon_flavor.json``) tables. Every field degrades to "" — the card renders with
+    any of them missing, those elements are simply not drawn.
+    """
+
+    fig: str = ""                  # series number shown in the kicker ("N° 01")
+    affiliation: str = ""          # kicker affiliation ("Wangsheng Funeral Parlor")
+    epithet: str = ""              # italic subtitle under the name ("Fragrance in Thaw")
+    constellation_name: str = ""   # italic title of the constellation map ("Papilio Charontis")
+    region: str = ""               # region pill ("Liyue"); element is always available
+    weapon_passive: str = ""       # weapon passive description line, R1 wording
 
 
 @dataclass(slots=True)
@@ -68,6 +86,8 @@ class TalentInfo:
     level_text: str = ""
     level: int = 1
     image: object | None = None
+    # Display name as reported by Enka (e.g. "Rain of Stone"); "" when unknown.
+    name: str = ""
 
 
 @dataclass(slots=True)
@@ -147,6 +167,7 @@ class CardData:
     weapon_image: object | None = None
     glow: tuple[int, int, int] = (60, 62, 82)
     character_adjustment: Adjustment = DEFAULT_ADJUSTMENT
+    flavor: FlavorInfo | None = None
 
 
 def _weapon_sub_text(name: str | None, value: float) -> str:
@@ -163,7 +184,8 @@ def _elemental_bonus(stats, element: str | None) -> float:
     value = extra.get(key) if key else None
     if value is None:
         # No element-specific bonus present: fall back to the largest bonus reported.
-        bonuses = [v for k, v in extra.items() if k.endswith("_ADD_HURT")]
+        bonuses = [v for k, v in extra.items()
+                   if k.endswith("_ADD_HURT") and isinstance(v, (int, float))]
         value = max(bonuses) if bonuses else 0.0
     # Enka reports these as fractions (0.466 == 46.6%).
     return float(value) * 100.0 if value <= 5 else float(value)
@@ -184,7 +206,8 @@ def from_character(character, *, portrait=None, icons=None, glow=(60, 62, 82),
         # Dynamic per §"ELEMENTAL DAMAGE": never a hardcoded "Pyro DMG Bonus".
         elemental_bonus_name=f"{(canon or 'Elemental').title()} DMG Bonus",
         # CRIT Value (2 x CRIT Rate + CRIT DMG): derived from the same live stats.
-        crit_value=f"{2 * stats.crit_rate + stats.crit_dmg:.1f}",
+        crit_value=(f"{2 * stats.crit_rate + stats.crit_dmg:.1f}"
+                    if stats.crit_rate is not None and stats.crit_dmg is not None else "--"),
     )
 
     weapon = None
@@ -204,7 +227,8 @@ def from_character(character, *, portrait=None, icons=None, glow=(60, 62, 82),
     talents: dict[str, TalentInfo] = {}
     for name, talent in zip(("normal", "skill", "burst"), character.talents[:3]):
         talents[name] = TalentInfo(level_text=f"Lv. {talent.level}", level=talent.level,
-                                   image=icons.get(talent.icon))
+                                   image=icons.get(talent.icon),
+                                   name="" if (talent.name or "?").strip() == "?" else talent.name)
 
     artifacts: dict[str, ArtifactInfo | None] = {}
     by_slot = {a.slot.lower(): a for a in (character.artifacts or [])}
@@ -234,11 +258,23 @@ def from_character(character, *, portrait=None, icons=None, glow=(60, 62, 82),
     artifact_set = None
     if counts:
         best = max(counts, key=counts.get)
+        two_piece, four_piece = _flavor.artifact_set_effects(best)
         artifact_set = SetInfo(
             name=best, count=counts[best], image=icons.get(set_icons.get(best)),
+            two_piece=two_piece, four_piece=four_piece,
             others=sorted(((n, c) for n, c in counts.items() if n != best),
                           key=lambda item: -item[1]),
         )
+
+    _character_flavor = _flavor.character_flavor(character.name)
+    flavor = FlavorInfo(
+        fig=str(_character_flavor.get("fig") or ""),
+        affiliation=str(_character_flavor.get("affiliation") or ""),
+        epithet=str(_character_flavor.get("epithet") or ""),
+        constellation_name=str(_character_flavor.get("constellation_name") or ""),
+        region=str(_character_flavor.get("region") or ""),
+        weapon_passive=_flavor.weapon_passive(character.weapon.name if character.weapon else None),
+    )
 
     return CardData(
         artifact_set=artifact_set,
@@ -256,5 +292,5 @@ def from_character(character, *, portrait=None, icons=None, glow=(60, 62, 82),
         weapon=weapon, stats=block, talents=talents, artifacts=artifacts,
         portrait=portrait,
         weapon_image=icons.get(character.weapon.icon) if character.weapon else None,
-        glow=glow, character_adjustment=adjustment,
+        glow=glow, character_adjustment=adjustment, flavor=flavor,
     )

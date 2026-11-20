@@ -171,7 +171,10 @@ class CharacterMetadataResolver:
 
     def invalidate(self) -> None:
         """Drop the cached upstream payload so the next resolve re-fetches it."""
-        self._fetched_at = 0.0
+        # ``time.monotonic()`` is measured from an arbitrary reference, so zeroing
+        # ``_fetched_at`` does not guarantee the TTL check fails on a freshly booted
+        # host. A negative infinity timestamp always counts as expired.
+        self._fetched_at = float("-inf")
 
     # -- public API --------------------------------------------------------
     async def resolve(self, char_id: str, language: str = "en") -> CharacterMeta | None:
