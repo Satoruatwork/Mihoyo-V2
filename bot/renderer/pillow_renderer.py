@@ -312,40 +312,27 @@ class PillowRenderer(Renderer):
             return None
         return max(candidates) * 100.0
 
-    def _template_base(self) -> Image.Image:
-        """Return a fresh copy of the card template, decoded+resized only once.
-
-        The template is a static asset; decoding and resizing it on every render was a
-        repeated disk read + JPEG decode. We cache the prepared RGBA image in memory and
-        return a ``.copy()`` so each render can safely composite onto its own canvas.
-        """
-        cached = getattr(self, "_template_cache", None)
-        if cached is None:
-            try:
-                base = Image.open(bootstrap.template_path()).convert("RGBA")
-                if base.size != card_layout.CARD_SIZE:
-                    base = base.resize(card_layout.CARD_SIZE)
-            except Exception as exc:  # noqa: BLE001 - template missing -> minimal fallback
-                logger.warning("Card template missing (%s); using flat canvas", exc)
-                base = Image.new("RGBA", card_layout.CARD_SIZE, (32, 30, 40, 255))
-            cached = base
-            self._template_cache = cached
-        return cached.copy()
+    def _dark_luxury_canvas(self, theme: dict[str, tuple[int, int, int]]) -> Image.Image:
+        """Create a 1280x720 dark obsidian canvas with subtle elemental ambient glow."""
+        w, h = card_layout.CARD_SIZE
+        base = Image.new("RGBA", (w, h), (16, 15, 20, 255))
+        glow_layer = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+        gdraw = ImageDraw.Draw(glow_layer)
+        gr, gg, gb = theme["glow"]
+        # Ambient glow behind portrait
+        gdraw.ellipse((60, 40, 440, 680), fill=(gr, gg, gb, 36))
+        # Subtle top-right ambient glow
+        gdraw.ellipse((860, -120, 1340, 320), fill=(gr, gg, gb, 20))
+        glow_layer = glow_layer.filter(ImageFilter.GaussianBlur(radius=70))
+        base.alpha_composite(glow_layer)
+        return base
 
     def render_profile_card(self, ctx: CharacterCardContext) -> bytes:
         c = ctx.character
         theme = card_layout.theme_for(c.element if c else None)
+        base = self._dark_luxury_canvas(theme)
 
-        # Base canvas: the cached template (decoded once). Fallback handled in the helper.
-        base = self._template_base()
-
-        # No full-card element tint. It used to wash the entire template in the element
-        # colour at alpha 60, which shifted the cream panels well off the approved design
-        # (measured against the reference: cream (239,231,220) came out as (222,188,178), a
-        # clear pink cast on a Pyro character). The element still drives the portrait glow
-        # and the accent colour below, which is where the reference actually uses it.
-
-        # Portrait (glow backdrop + cover-fit art) into the oval frame.
+        # Portrait (glow backdrop + cover-fit art) into the left showcase frame.
         portrait = ctx.portrait if isinstance(ctx.portrait, Image.Image) else None
         self._fit_portrait_ellipse(base, portrait, card_layout.PORTRAIT_BOX, theme["glow"])
 
@@ -354,180 +341,147 @@ class PillowRenderer(Renderer):
             return self._to_png(base)
 
         accent = theme["accent"]
-        dark = (52, 44, 34)
+        glass_bg = (22, 21, 28, 220)
+        glass_border = (68, 64, 78, 255)
+        divider_col = (44, 42, 54, 255)
+        ivory = (245, 242, 238)
+        muted = (160, 156, 168)
+        gold = (232, 188, 92)
 
-        # Erase the template's baked placeholder text/stars before drawing live values, by
-        # filling each region with its local panel colour (sampled adjacent to the text) so
-        # nothing ghosts through. Panels differ (dark top bar vs cream body), so sample per area.
-        def sample(x, y):
-            return base.getpixel((x, y))[:3]
+        def draw_glass(box, *, radius=12, border=glass_border, fill=glass_bg, width=1):
+            draw.rounded_rectangle(box, radius=radius, fill=fill, outline=border, width=width)
 
-        def mask(box, color):
-            draw.rectangle(box, fill=color)
+        # -- left showcase: header, constellations, friendship, UID --
+        self._draw_fit(draw, (118, 22), (c.name or "--").upper(),
+                       max_width=265, size=36, weight=700, color=ivory)
+        self._stars(draw, (120, 68), c.rarity or 0, size=18, color=gold)
+        elem_label = (card_layout.canonical_element(c.element) or c.element or "").upper()
+        if elem_label:
+            draw.text((120, 92), elem_label, font=self._pfont(12, 600), fill=accent)
 
-        cream = sample(1000, 92)          # artifact / cream body panels
-        wcream_top = sample(690, 150)     # weapon panel cream near name/type boxes
-        wcream_bot = sample(470, 245)     # weapon panel cream near the rarity stars
-        header_bg = sample(330, 20)       # header marble
-        topbar = sample(500, 60)          # dark top-bar interior (not its lighter edge)
-        setcream = sample(760, 522)       # set-bonus panel cream (right of "SET NAME")
-        lvbox = sample(650, 213)          # weapon "Lv." box interior
-        self._cream = cream               # reused by talent/artifact/set erases
-
-        # -- header --
-        mask((110, 24, 362, 70), header_bg)       # CHARACTER NAME
-        mask((116, 70, 250, 92), header_bg)       # header rarity stars
-        mask((116, 88, 322, 110), header_bg)      # Title / Nickname
-        # -- top bar (dark): level "/" and baked rarity stars --
-        mask((428, 50, 476, 80), topbar)
-        mask((724, 52, 826, 80), topbar)
-        # -- weapon panel --
-        mask((512, 128, 704, 160), wcream_top)    # WEAPON NAME
-        mask((398, 215, 494, 239), wcream_bot)    # baked rarity stars under the icon
-        # The second stat box is NOT unused — it holds the weapon's secondary stat, so its
-        # baked frame is kept and only the placeholder glyph inside it is cleared.
-        mask((668, 164, 758, 189), wcream_top)    # 2nd stat box interior
-        mask((806, 166, 832, 189), wcream_top)    # "R" box interior (cream, as in the reference)
-        mask((508, 201, 700, 226), lvbox)         # baked "Lv. /"
-        # -- set bonus: SET NAME (wide enough to also clear the leading 'S') --
-        mask((608, 510, 762, 542), setcream)
-        # -- artifacts: main stat, baked stars, substats per card --
-        for i, top in enumerate(card_layout.ARTIFACT_CARD_TOP):
-            dy = top - card_layout.ARTIFACT_CARD_REF_TOP
-            mask((968, 94 + dy, 1086, 136 + dy), cream)           # Main Stat (name + value lines)
-            mask((896, 140 + dy, 968, 162 + dy), cream)           # baked rarity stars
-            for sy in card_layout.ARTIFACT_SUBSTAT_YS:
-                mask((1096, sy - 10 + dy, 1262, sy + 12 + dy), cream)  # Substats
-        # -- talent panel: baked "/" values under each icon --
-        talcream = sample(405, 548)
-        for tx, ty in card_layout.TALENT_LEVEL_POS:
-            mask((tx - 16, ty - 13, tx + 16, ty + 11), talcream)
-
-        # -- header --
-        # weight 600, not 800: the reference's name is a lighter display face, and 800 read
-        # as noticeably heavier than the approved card at the same cap height.
-        self._draw_fit(draw, card_layout.NAME_POS, (c.name or "--").upper(),
-                       max_width=card_layout.NAME_MAX_WIDTH, size=42, weight=600, color=dark)
-        self._stars(draw, card_layout.RARITY_STARS_POS, c.rarity or 0, size=20)
-        # The template's "Title / Nickname" line is intentionally left blank: the card shows
-        # character names only. It previously drew the *player's* nickname here, which
-        # mislabelled the slot (it is a character field, not an account one). The baked
-        # placeholder is already erased by the mask above, so nothing is drawn.
-
-        # -- top bar: level / constellation / rarity --
-        draw.text(card_layout.LEVEL_VALUE_POS, self._fmt(c.level), font=self._pfont(22, 600),
-                  fill=(240, 232, 214), anchor="mm")
-        draw.text(card_layout.CONSTELLATION_VALUE_POS, str(c.constellation),
-                  font=self._pfont(20, 700), fill=(240, 232, 214), anchor="mm")
-        self._stars(draw, card_layout.RARITY_BAR_STARS_POS, c.rarity or 0, size=18, anchor="mm")
-
-        # -- constellation rail (real lock state, dynamic icons) --
         self._draw_constellations(base, draw, c, ctx.icons, theme)
 
-        # -- weapon (icon + rarity stars + name + level + refinement + type) --
+        draw_glass((120, 548, 242, 578), radius=15, fill=(26, 24, 34, 230))
+        draw.text((136, 563), f"Friendship  {c.friendship}", font=self._pfont(13, 600),
+                  fill=ivory, anchor="lm")
+        if ctx.player and ctx.player.uid:
+            draw.text((120, 692), f"UID: {ctx.player.uid}", font=self._pfont(12, 400),
+                      fill=muted, anchor="lm")
+
+        # -- top-right: floating weapon & character level banner (x=392..1260, y=20..146) --
+        draw_glass((392, 20, 1260, 146), radius=14)
+        # Left side of banner: Level / Constellation / Rarity chips
+        draw.text((414, 42), f"LV. {self._fmt(c.level)} / 90", font=self._pfont(16, 700), fill=ivory, anchor="lm")
+        draw_glass((414, 60, 466, 86), radius=6, fill=(36, 33, 46, 255), border=accent)
+        draw.text((440, 73), f"C{c.constellation}", font=self._pfont(13, 700), fill=ivory, anchor="mm")
+        self._stars(draw, (478, 73), c.rarity or 0, size=14, color=gold, anchor="lm")
+        draw.line((600, 34, 600, 132), fill=divider_col, width=1)
+
+        # Right side of banner: Weapon showcase
         if c.weapon:
-            self._paste_icon(base, ctx.icons, c.weapon.icon, card_layout.WEAPON_ICON_BOX,
-                             fit=True, erase=wcream_bot)
-            self._draw_fit(draw, card_layout.WEAPON_NAME_POS, c.weapon.name or "--",
-                           max_width=card_layout.WEAPON_NAME_MAX_WIDTH, size=19, weight=600, color=dark)
-            self._stars(draw, (card_layout.WEAPON_ICON_BOX[0], 226),
-                        c.weapon.rarity or 0, size=13, anchor="mm")
-            # The template's two boxes hold the weapon's STATS (base ATK, then its secondary
-            # stat) — that is what the reference shows. This used to print the weapon class
-            # ("Polearm") in the first box and leave the second empty, discarding both values.
+            self._paste_icon(base, ctx.icons, c.weapon.icon, (658, 78, 78), fit=True)
+            self._stars(draw, (658, 128), c.weapon.rarity or 0, size=12, color=gold, anchor="mm")
+            self._draw_fit(draw, (714, 44), c.weapon.name or "--",
+                           max_width=360, size=20, weight=700, color=ivory, anchor="lm")
+            draw.text((714, 72), f"Lv. {c.weapon.level} / {_weapon_max_level(c.weapon)}",
+                      font=self._pfont(14, 600), fill=muted, anchor="lm")
+            # Weapon stat pills
+            px = 714
             if c.weapon.main_stat_value is not None:
-                draw.text(card_layout.WEAPON_MAIN_STAT_POS, f"{c.weapon.main_stat_value:,.0f}",
-                          font=self._pfont(17, 600), fill=dark, anchor="lm")
+                draw_glass((px, 92, px + 104, 122), radius=8, fill=(32, 30, 42, 255))
+                draw.text((px + 52, 107), f"ATK {c.weapon.main_stat_value:,.0f}",
+                          font=self._pfont(13, 600), fill=ivory, anchor="mm")
+                px += 114
             if c.weapon.sub_stat_value is not None:
-                draw.text(card_layout.WEAPON_SUB_STAT_POS,
-                          _weapon_sub_text(c.weapon.sub_stat_name, c.weapon.sub_stat_value),
-                          font=self._pfont(17, 600), fill=dark, anchor="lm")
-            # "Lv. 90 / 90" — the template bakes the separator, so both numbers are drawn.
-            draw.text(card_layout.WEAPON_LEVEL_POS,
-                      f"Lv. {c.weapon.level} / {_weapon_max_level(c.weapon)}",
-                      font=self._pfont(18), fill=dark, anchor="lm")
-            # Dark text on the cream box, matching the reference (was light-on-dark).
-            draw.text(card_layout.WEAPON_REFINE_POS, f"R{c.weapon.refinement}",
-                      font=self._pfont(17, 700), fill=dark, anchor="mm")
+                draw_glass((px, 92, px + 110, 122), radius=8, fill=(32, 30, 42, 255))
+                draw.text((px + 55, 107), _weapon_sub_text(c.weapon.sub_stat_name, c.weapon.sub_stat_value),
+                          font=self._pfont(13, 600), fill=ivory, anchor="mm")
+            # Refinement badge on far right
+            draw_glass((1188, 44, 1238, 82), radius=8, fill=(42, 36, 40, 255), border=accent)
+            draw.text((1213, 63), f"R{c.weapon.refinement}", font=self._pfont(15, 700), fill=gold, anchor="mm")
 
-        # -- talent icons (erase the baked emblem first, then the transparent PNG icon) --
-        for box, tal in zip(card_layout.TALENT_ICON_BOXES, (c.talents or [])[:3]):
-            self._paste_icon(base, ctx.icons, tal.icon, box, fit=True, erase=talcream)
-
-        # -- base stats (values right-aligned per labelled row) --
+        # -- middle row: two-column Stats & Talents/Set module (y=162..434) --
+        # Left sub-panel: Base Stats (x=392..866)
+        draw_glass((392, 162, 866, 434), radius=14)
+        draw.text((414, 182), "ATTRIBUTES", font=self._pfont(12, 700), fill=accent, anchor="lm")
         s = c.stats
-        stat_values = {
-            "hp": self._fmt(s.hp), "atk": self._fmt(s.atk), "defense": self._fmt(s.defense),
-            "elemental_mastery": self._fmt(s.elemental_mastery),
-            "crit_rate": self._fmt(s.crit_rate, percent=True),
-            "crit_dmg": self._fmt(s.crit_dmg, percent=True),
-            "energy_recharge": self._fmt(s.energy_recharge, percent=True),
-            "elemental_bonus": self._fmt(self._elemental_bonus(s, c.element), percent=True),
-        }
-        for field, y in card_layout.BASE_STAT_ROWS_Y.items():
-            draw.text((card_layout.BASE_STAT_VALUE_X, y), stat_values.get(field, "--"),
-                      font=self._pfont(18, 600), fill=dark, anchor="rm")
-
-        # -- talents --
-        for pos, tal in zip(card_layout.TALENT_LEVEL_POS, (c.talents or [])[:3]):
-            crown = tal.level >= 10
-            draw.text(pos, str(tal.level), font=self._pfont(18, 700),
-                      fill=(214, 168, 74) if crown else dark, anchor="mm")
-
-        # -- artifacts (place each by slot) --
-        by_slot = {a.slot.lower(): a for a in (c.artifacts or [])}
-        for i, slot in enumerate(("flower", "plume", "sands", "goblet", "circlet")):
-            art = by_slot.get(slot)
-            if art is None:
-                continue
-            dy = card_layout.ARTIFACT_CARD_TOP[i] - card_layout.ARTIFACT_CARD_REF_TOP
-            self._paste_icon(base, ctx.icons, art.icon, card_layout.ARTIFACT_ICON_BOXES[i],
-                             fit=True, erase=cream)
-            if art.main_stat:
-                # Two lines, as in the reference: stat name above, formatted value below.
-                nx, ny = card_layout.ARTIFACT_MAIN_NAME_POS
-                vx, vy = card_layout.ARTIFACT_MAIN_VALUE_POS
-                self._draw_fit(draw, (nx, ny + dy), art.main_stat.name,
-                               max_width=card_layout.ARTIFACT_MAIN_MAX_WIDTH,
-                               size=13, color=(90, 78, 62), anchor="lm")
-                self._draw_fit(draw, (vx, vy + dy), _stat_value(art.main_stat, signed=False),
-                               max_width=card_layout.ARTIFACT_MAIN_MAX_WIDTH,
-                               size=17, weight=600, color=dark, anchor="lm")
-            self._stars(draw, (card_layout.ARTIFACT_STARS_POS[0], card_layout.ARTIFACT_STARS_POS[1] + dy),
-                        art.rarity or 5, size=13)
-            for sub, sy in zip(art.sub_stats[:4], card_layout.ARTIFACT_SUBSTAT_YS):
-                # Name and value are separate left-aligned columns, so a long name can never
-                # push its value out of line with the rows above and below it.
-                self._draw_fit(draw, (card_layout.ARTIFACT_SUBSTAT_X, sy + dy), sub.name,
-                               max_width=card_layout.ARTIFACT_SUBSTAT_NAME_MAX_WIDTH,
-                               size=13, color=(90, 78, 62), anchor="lm")
-                self._draw_fit(draw, (card_layout.ARTIFACT_SUBSTAT_VALUE_X, sy + dy),
-                               _stat_value(sub, signed=True),
-                               max_width=card_layout.ARTIFACT_SUBSTAT_VALUE_MAX_WIDTH,
-                               size=13, weight=600, color=dark, anchor="lm")
-
-        # -- set bonus (dominant set from equipped artifacts) + set icon --
-        set_name, set_count, set_icon = self._dominant_set(c.artifacts or [])
-        if set_name:
-            self._draw_fit(draw, card_layout.SET_NAME_POS, f"{set_name} ({set_count})",
-                           max_width=150, size=16, weight=700, color=dark, anchor="lm")
-        if set_icon:
-            self._paste_icon(base, ctx.icons, set_icon, card_layout.SET_ICON_BOX,
-                             fit=True, erase=setcream)
-
-        # -- bottom summary bar --
-        bottom_vals = [
-            self._fmt(s.crit_rate, percent=True), self._fmt(s.crit_dmg, percent=True),
-            self._fmt(s.energy_recharge, percent=True), self._fmt(s.atk), self._fmt(s.defense),
-            self._fmt(s.elemental_mastery),
-            self._fmt(self._elemental_bonus(s, c.element), percent=True),
+        stat_rows = [
+            ("Max HP", self._fmt(s.hp)),
+            ("ATK", self._fmt(s.atk)),
+            ("DEF", self._fmt(s.defense)),
+            ("Elemental Mastery", self._fmt(s.elemental_mastery)),
+            ("CRIT Rate", self._fmt(s.crit_rate, percent=True)),
+            ("CRIT DMG", self._fmt(s.crit_dmg, percent=True)),
+            ("Energy Recharge", self._fmt(s.energy_recharge, percent=True)),
+            ("Elemental DMG Bonus", self._fmt(self._elemental_bonus(s, c.element), percent=True)),
         ]
-        for x, val in zip(card_layout.BOTTOM_BAR_VALUE_X, bottom_vals):
-            draw.text((x, card_layout.BOTTOM_BAR_Y), val, font=self._pfont(15, 600),
-                      fill=(228, 220, 205), anchor="mm")
+        for idx, (label, val) in enumerate(stat_rows):
+            ry = 212 + idx * 27
+            if idx > 0:
+                draw.line((414, ry - 13, 844, ry - 13), fill=divider_col, width=1)
+            draw.text((414, ry), label, font=self._pfont(13, 400), fill=muted, anchor="lm")
+            draw.text((844, ry), val, font=self._pfont(14, 700), fill=ivory, anchor="rm")
 
-        # Akasha ranking is intentionally NOT drawn on the image — it lives only in the
-        # Telegram caption, keeping the card visually clean.
+        # Right sub-panel: Talents & Set Bonus (x=882..1260)
+        draw_glass((882, 162, 1260, 304), radius=14)
+        draw.text((1071, 182), "TALENT LEVELS", font=self._pfont(12, 700), fill=accent, anchor="mm")
+        for tx, tal in zip((958, 1071, 1184), (c.talents or [])[:3]):
+            draw.ellipse((tx - 28, 202, tx + 28, 258), fill=(32, 30, 42, 255), outline=glass_border, width=1)
+            self._paste_icon(base, ctx.icons, tal.icon, (tx, 230, 44), fit=True)
+            crown = tal.level >= 10
+            draw.text((tx, 280), str(tal.level), font=self._pfont(17, 700),
+                      fill=gold if crown else ivory, anchor="mm")
+
+        draw_glass((882, 318, 1260, 434), radius=14)
+        draw.text((904, 338), "SET BONUS", font=self._pfont(12, 700), fill=accent, anchor="lm")
+        set_name, set_count, set_icon = self._dominant_set(c.artifacts or [])
+        if set_icon:
+            self._paste_icon(base, ctx.icons, set_icon, (926, 384, 42), fit=True)
+        if set_name:
+            self._draw_fit(draw, (960, 374), set_name, max_width=280, size=16, weight=700, color=ivory, anchor="lm")
+            draw.text((960, 398), f"{set_count}-Piece Active", font=self._pfont(13, 600), fill=accent, anchor="lm")
+        else:
+            draw.text((1071, 384), "No Set Bonus", font=self._pfont(13, 400), fill=muted, anchor="mm")
+
+        # -- bottom-right: horizontal 5-card Artifact Showcase (x=392..1260, y=450..700) --
+        card_w = 164
+        gap = 10
+        for i, slot in enumerate(("flower", "plume", "sands", "goblet", "circlet")):
+            left = 392 + i * (card_w + gap)
+            right = left + card_w
+            top, bot = 450, 700
+            draw_glass((left, top, right, bot), radius=12)
+            # Top accent bar
+            draw.rounded_rectangle((left + 16, top, right - 16, top + 3), radius=2, fill=accent)
+
+            art = {a.slot.lower(): a for a in (c.artifacts or [])}.get(slot)
+            cx = (left + right) // 2
+            if art is None:
+                draw.text((cx, (top + bot) // 2), f"{slot.upper()}\nEmpty",
+                          font=self._pfont(12, 400), fill=muted, anchor="mm")
+                continue
+
+            draw.text((left + 12, top + 18), slot.upper(), font=self._pfont(10, 700), fill=muted, anchor="lm")
+            draw.text((right - 12, top + 18), f"+{getattr(art, 'level', 20)}",
+                      font=self._pfont(10, 700), fill=accent, anchor="rm")
+
+            self._paste_icon(base, ctx.icons, art.icon, (cx, top + 58, 52), fit=True)
+            self._stars(draw, (cx, top + 92), art.rarity or 5, size=11, color=gold, anchor="mm")
+
+            if art.main_stat:
+                self._draw_fit(draw, (cx, top + 114), art.main_stat.name,
+                               max_width=card_w - 16, size=11, color=muted, anchor="mm")
+                self._draw_fit(draw, (cx, top + 134), _stat_value(art.main_stat, signed=False),
+                               max_width=card_w - 16, size=16, weight=700, color=ivory, anchor="mm")
+
+            draw.line((left + 12, top + 152, right - 12, top + 152), fill=divider_col, width=1)
+            for j, sub in enumerate(art.sub_stats[:4]):
+                sy = top + 168 + j * 21
+                self._draw_fit(draw, (left + 12, sy), sub.name,
+                               max_width=90, size=10, color=muted, anchor="lm")
+                self._draw_fit(draw, (right - 12, sy), _stat_value(sub, signed=True),
+                               max_width=54, size=10, weight=600, color=ivory, anchor="rm")
+
         return self._to_png(base)
 
     @staticmethod
