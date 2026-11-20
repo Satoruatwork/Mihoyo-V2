@@ -1,0 +1,18 @@
+{
+  "crimson witch of flames": {
+    "two_piece": "Pyro DMG Bonus +15%.",
+    "four_piece": "Overloaded, Burning & Burgeon DMG +40%. Vaporize & Melt DMG +15%. Skill use boosts the 2-piece by 50% (max 3 stacks)."
+  },
+  "tenacity of the millelith": {
+    "two_piece": "HP +20%.",
+    "four_piece": "Skill hits raise nearby allies' ATK by 20% and Shield Strength by 30% for 3s (once per 0.5s)."
+  },
+  "golden troupe": {
+    "two_piece": "Elemental Skill DMG +20%.",
+    "four_piece": "Elemental Skill DMG +25%. A further +25% while the wearer is off-field. This effect lingers 2s after switching in."
+  },
+  "emblem of severed fate": {
+    "two_piece": "Energy Recharge +20%.",
+    "four_piece": "Burst DMG +25% of Energy Recharge, up to a maximum of 75% bonus DMG."
+  }
+}

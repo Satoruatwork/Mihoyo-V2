@@ -1,0 +1,5 @@
+{
+  "staff of homa": "Max HP +20%. Gains bonus ATK equal to a share of Max HP, increased further below 50% HP.",
+  "vortex vanquisher": "Shield Strength +40%. Attacks stack ATK +8% (doubled while shielded), up to 5 stacks.",
+  "engulfing lightning": "ATK +28% of Energy Recharge over 100% (max 80%). After a Burst, gain 30% Energy Recharge for 12s."
+}
