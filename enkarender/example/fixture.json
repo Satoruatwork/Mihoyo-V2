@@ -1,0 +1,119 @@
+{
+  "playerInfo": {
+    "uid": "800000001",
+    "nickname": "Wanderer",
+    "level": 60,
+    "worldLevel": 8,
+    "signature": "Rendered entirely offline by enkarender.",
+    "finishAchievementNum": 812,
+    "nameCardId": 210001
+  },
+  "avatarInfoList": [
+    {
+      "avatarId": 10000037,
+      "_name": "Ganyu",
+      "_element": "Ice",
+      "_rarity": 5,
+      "propMap": { "4001": { "val": "90" } },
+      "talentIdList": [1],
+      "fightPropMap": {
+        "2000": 40120, "2001": 2280, "2002": 785,
+        "20": 0.716, "22": 1.523, "23": 1.264, "28": 118
+      },
+      "equipList": [
+        {
+          "weapon": { "level": 90 },
+          "flat": {
+            "itemType": "ITEM_WEAPON",
+            "rankLevel": 5,
+            "nameTextMapHash": "W1",
+            "weaponStats": [
+              { "appendPropId": "FIGHT_PROP_BASE_ATTACK", "statValue": 608 },
+              { "appendPropId": "FIGHT_PROP_CRITICAL_HURT", "statValue": 33.1 }
+            ]
+          }
+        },
+        {
+          "reliquary": { "level": 21 },
+          "flat": {
+            "itemType": "ITEM_RELIQUARY", "equipType": "EQUIP_BRACER", "rankLevel": 5,
+            "setNameTextMapHash": "S1",
+            "reliquaryMainstat": { "mainPropId": "FIGHT_PROP_HP", "statValue": 4780 },
+            "reliquarySubstats": [
+              { "appendPropId": "FIGHT_PROP_CRITICAL", "statValue": 7.0 },
+              { "appendPropId": "FIGHT_PROP_CRITICAL_HURT", "statValue": 14.0 }
+            ]
+          }
+        },
+        {
+          "reliquary": { "level": 21 },
+          "flat": {
+            "itemType": "ITEM_RELIQUARY", "equipType": "EQUIP_NECKLACE", "rankLevel": 5,
+            "setNameTextMapHash": "S1",
+            "reliquaryMainstat": { "mainPropId": "FIGHT_PROP_ATTACK", "statValue": 311 },
+            "reliquarySubstats": [
+              { "appendPropId": "FIGHT_PROP_CRITICAL", "statValue": 3.9 }
+            ]
+          }
+        },
+        {
+          "reliquary": { "level": 21 },
+          "flat": {
+            "itemType": "ITEM_RELIQUARY", "equipType": "EQUIP_SHOES", "rankLevel": 5,
+            "setNameTextMapHash": "S1",
+            "reliquaryMainstat": { "mainPropId": "FIGHT_PROP_CHARGE_EFFICIENCY", "statValue": 51.8 },
+            "reliquarySubstats": [
+              { "appendPropId": "FIGHT_PROP_CRITICAL_HURT", "statValue": 10.9 }
+            ]
+          }
+        },
+        {
+          "reliquary": { "level": 21 },
+          "flat": {
+            "itemType": "ITEM_RELIQUARY", "equipType": "EQUIP_RING", "rankLevel": 5,
+            "setNameTextMapHash": "S1",
+            "reliquaryMainstat": { "mainPropId": "FIGHT_PROP_ICE_ADD_HURT", "statValue": 46.6 },
+            "reliquarySubstats": [
+              { "appendPropId": "FIGHT_PROP_CRITICAL", "statValue": 5.4 }
+            ]
+          }
+        },
+        {
+          "reliquary": { "level": 21 },
+          "flat": {
+            "itemType": "ITEM_RELIQUARY", "equipType": "EQUIP_DRESS", "rankLevel": 5,
+            "setNameTextMapHash": "S1",
+            "reliquaryMainstat": { "mainPropId": "FIGHT_PROP_CRITICAL", "statValue": 31.1 },
+            "reliquarySubstats": [
+              { "appendPropId": "FIGHT_PROP_CRITICAL_HURT", "statValue": 21.8 }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "avatarId": 10000047,
+      "_name": "Kazuha",
+      "_element": "Wind",
+      "_rarity": 5,
+      "propMap": { "4001": { "val": "90" } },
+      "talentIdList": [1, 2],
+      "fightPropMap": {
+        "2000": 22500, "2001": 1400, "2002": 750,
+        "20": 0.24, "22": 0.85, "23": 1.65, "28": 842
+      },
+      "equipList": [
+        {
+          "weapon": { "level": 90, "affixMap": { "a": 0 } },
+          "flat": {
+            "itemType": "ITEM_WEAPON", "rankLevel": 5, "nameTextMapHash": "W2",
+            "weaponStats": [
+              { "appendPropId": "FIGHT_PROP_BASE_ATTACK", "statValue": 608 },
+              { "appendPropId": "FIGHT_PROP_ELEMENT_MASTERY", "statValue": 198 }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

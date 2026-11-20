@@ -1,0 +1,15 @@
+{
+  "_default": {
+    "roles": ["DPS"],
+    "weapons": ["Best-in-slot weapon", "Alternative weapon"],
+    "artifacts": ["Recommended set (4pc)", "Alternative set (2pc + 2pc)"],
+    "main_stats": {
+      "sands": "ATK% / ER / EM",
+      "goblet": "Elemental DMG / ATK%",
+      "circlet": "Crit Rate / Crit DMG"
+    },
+    "substats": ["Crit Rate", "Crit DMG", "ATK%", "Energy Recharge", "Elemental Mastery"],
+    "talent_priority": ["Normal Attack", "Elemental Skill", "Elemental Burst"],
+    "notes": "Generic placeholder build. Character-specific guides will be added later."
+  }
+}

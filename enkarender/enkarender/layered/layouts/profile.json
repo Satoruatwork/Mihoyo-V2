@@ -1,0 +1,48 @@
+{
+  "base_width": 1000,
+  "base_height": 1500,
+  "background": "#12131bff",
+  "layers": [
+    { "id": "bg",            "type": "background", "z": 0,  "from": "background", "opacity": 1.0 },
+
+    { "id": "overlay_glow",  "type": "effect",     "z": 5,  "from": "overlay", "x": 0, "y": 0, "width": 1000, "height": 1500, "opacity": 0.35 },
+
+    { "id": "header_panel",  "type": "panel",      "z": 10, "x": 40,  "y": 40,   "width": 920, "height": 220,
+      "fill": "#1e2030dc", "outline": "#6c72aaff", "outline_width": 2, "radius": 28 },
+    { "id": "stats_panel",   "type": "panel",      "z": 10, "x": 560, "y": 300,  "width": 400, "height": 520,
+      "fill": "#1e2030dc", "outline": "#6c72aaff", "outline_width": 2, "radius": 24 },
+    { "id": "arts_panel",    "type": "panel",      "z": 10, "x": 40,  "y": 1120, "width": 920, "height": 300,
+      "fill": "#1e2030c8", "outline": "#6c72aaff", "outline_width": 2, "radius": 24 },
+
+    { "id": "portrait_frame","type": "frame",      "z": 15, "x": 40,  "y": 300,  "width": 500, "height": 800, "from": "portrait_frame" },
+    { "id": "splash",        "type": "character",  "z": 20, "x": 40,  "y": 300,  "width": 500, "height": 800, "from": "character_art" },
+    { "id": "element_badge", "type": "element",    "z": 25, "x": 470, "y": 320,  "width": 90,  "height": 90,  "from": "element_icon" },
+
+    { "id": "weapon_icon",   "type": "weapon",     "z": 30, "x": 590, "y": 330,  "width": 150, "height": 150, "from": "weapon_icon" },
+
+    { "id": "artifacts",     "type": "artifact",   "z": 35, "x": 70,  "y": 1160, "width": 150, "height": 150,
+      "from": "artifacts", "columns": 5, "gap_x": 30 },
+    { "id": "talents",       "type": "talent",     "z": 40, "x": 590, "y": 500,  "width": 90,  "height": 90,
+      "from": "talents", "columns": 3, "gap_x": 24 },
+    { "id": "stats",         "type": "stat",       "z": 45, "x": 590, "y": 620,  "width": 40,  "height": 40,
+      "from": "stats", "icon_size": 40, "gap_y": 18, "font_size": 34, "color": "#f0f2faff" },
+
+    { "id": "nickname",      "type": "text", "z": 50, "x": 70,  "y": 70,  "font_size": 60, "weight": 700,
+      "color": "#ffffffff", "text": "{nickname}", "shadow": "#00000090" },
+    { "id": "uid",           "type": "text", "z": 50, "x": 70,  "y": 150, "font_size": 30, "color": "#9aa0c8ff", "text": "UID {uid}" },
+    { "id": "ar",            "type": "text", "z": 50, "x": 930, "y": 70,  "align": "right", "font_size": 34,
+      "weight": 600, "color": "#ffffffff", "text": "AR {level}" },
+    { "id": "wl",            "type": "text", "z": 50, "x": 930, "y": 120, "align": "right", "font_size": 26, "color": "#9aa0c8ff", "text": "WL {world_level}" },
+
+    { "id": "char_name",     "type": "text", "z": 50, "x": 300, "y": 320, "font_size": 72, "weight": 700,
+      "color": "#ffffffff", "text": "{char_name}", "shadow": "#00000090" },
+    { "id": "char_level",    "type": "text", "z": 50, "x": 300, "y": 410, "font_size": 34, "color": "#c9cdf0ff", "text": "Lv. {char_level}   C{constellation}" },
+    { "id": "weapon_name",   "type": "text", "z": 50, "x": 590, "y": 490, "font_size": 30, "weight": 600,
+      "color": "#ffffffff", "text": "{weapon_name}  R{refinement}" },
+
+    { "id": "arts_title",    "type": "text", "z": 46, "x": 70,  "y": 1130, "font_size": 28, "weight": 600, "color": "#8bd3e0ff", "text": "Artifacts" },
+
+    { "id": "footer",        "type": "footer", "z": 80, "x": 500, "y": 1450, "align": "center",
+      "font_size": 22, "color": "#7b81a8ff", "text": "{footer}" }
+  ]
+}
