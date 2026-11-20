@@ -332,155 +332,147 @@ class PillowRenderer(Renderer):
         theme = card_layout.theme_for(c.element if c else None)
         base = self._dark_luxury_canvas(theme)
 
-        # Portrait (glow backdrop + cover-fit art) into the left showcase frame.
+        # Full-bleed left character portrait, seamlessly blended into the dark canvas.
         portrait = ctx.portrait if isinstance(ctx.portrait, Image.Image) else None
-        self._fit_portrait_ellipse(base, portrait, card_layout.PORTRAIT_BOX, theme["glow"])
+        if portrait is not None:
+            pw, ph = 540, 720
+            p_copy = portrait.convert("RGBA")
+            scale = max(pw / p_copy.width, ph / p_copy.height)
+            nw, nh = int(p_copy.width * scale), int(p_copy.height * scale)
+            p_copy = p_copy.resize((nw, nh), Image.Resampling.LANCZOS)
+            left_crop = max(0, (nw - pw) // 2)
+            top_crop = max(0, (nh - ph) // 4)
+            p_copy = p_copy.crop((left_crop, top_crop, left_crop + pw, top_crop + ph))
+            # Soft horizontal fade on the right edge so it blends into the dark UI
+            mask = Image.new("L", (pw, ph), 255)
+            mdraw = ImageDraw.Draw(mask)
+            for x in range(pw - 140, pw):
+                alpha = int(255 * (pw - x) / 140)
+                mdraw.line((x, 0, x, ph), fill=alpha)
+            base.paste(p_copy, (0, 0), mask)
 
         draw = ImageDraw.Draw(base)
         if c is None:
             return self._to_png(base)
 
         accent = theme["accent"]
-        glass_bg = (22, 21, 28, 220)
-        glass_border = (68, 64, 78, 255)
-        divider_col = (44, 42, 54, 255)
-        ivory = (245, 242, 238)
-        muted = (160, 156, 168)
-        gold = (232, 188, 92)
+        glass_bg = (26, 24, 32, 215)
+        glass_border = (110, 102, 118, 200)
+        divider_col = (58, 54, 68, 200)
+        ivory = (248, 244, 238)
+        muted = (176, 170, 182)
+        gold = (236, 194, 96)
 
-        def draw_glass(box, *, radius=12, border=glass_border, fill=glass_bg, width=1):
+        def draw_glass(box, *, radius=14, border=glass_border, fill=glass_bg, width=1):
             draw.rounded_rectangle(box, radius=radius, fill=fill, outline=border, width=width)
 
-        # -- left showcase: header, constellations, friendship, UID --
-        self._draw_fit(draw, (118, 22), (c.name or "--").upper(),
-                       max_width=265, size=36, weight=700, color=ivory)
-        self._stars(draw, (120, 68), c.rarity or 0, size=18, color=gold)
+        # -- left showcase: element, name, stars, constellations, level, UID --
         elem_label = (card_layout.canonical_element(c.element) or c.element or "").upper()
         if elem_label:
-            draw.text((120, 92), elem_label, font=self._pfont(12, 600), fill=accent)
+            draw.text((40, 148), elem_label, font=self._pfont(14, 700), fill=accent, anchor="lm")
+        self._draw_fit(draw, (38, 172), (c.name or "--").upper(),
+                       max_width=320, size=44, weight=700, color=ivory)
+        self._stars(draw, (40, 226), c.rarity or 0, size=18, color=gold)
 
         self._draw_constellations(base, draw, c, ctx.icons, theme)
 
-        draw_glass((120, 548, 242, 578), radius=15, fill=(26, 24, 34, 230))
-        draw.text((136, 563), f"Friendship  {c.friendship}", font=self._pfont(13, 600),
-                  fill=ivory, anchor="lm")
+        # Bottom-left level & friendship pill
+        draw_glass((38, 636, 280, 674), radius=18, fill=(20, 18, 26, 230))
+        draw.text((56, 655), f"Lv. {self._fmt(c.level)}  |  C{c.constellation}  |  Friendship {c.friendship}",
+                  font=self._pfont(13, 600), fill=ivory, anchor="lm")
         if ctx.player and ctx.player.uid:
-            draw.text((120, 692), f"UID: {ctx.player.uid}", font=self._pfont(12, 400),
+            draw.text((40, 694), f"UID: {ctx.player.uid}", font=self._pfont(12, 400),
                       fill=muted, anchor="lm")
 
-        # -- top-right: floating weapon & character level banner (x=392..1260, y=20..146) --
-        draw_glass((392, 20, 1260, 146), radius=14)
-        # Left side of banner: Level / Constellation / Rarity chips
-        draw.text((414, 42), f"LV. {self._fmt(c.level)} / 90", font=self._pfont(16, 700), fill=ivory, anchor="lm")
-        draw_glass((414, 60, 466, 86), radius=6, fill=(36, 33, 46, 255), border=accent)
-        draw.text((440, 73), f"C{c.constellation}", font=self._pfont(13, 700), fill=ivory, anchor="mm")
-        self._stars(draw, (478, 73), c.rarity or 0, size=14, color=gold, anchor="lm")
-        draw.line((600, 34, 600, 132), fill=divider_col, width=1)
-
-        # Right side of banner: Weapon showcase
+        # -- top-right: floating weapon banner (x=540..1250, y=28..164) --
+        draw_glass((540, 28, 1250, 164), radius=16)
+        # Subtle elemental glow strip on the right of the weapon banner
+        draw.rounded_rectangle((540, 28, 1250, 32), radius=2, fill=accent)
         if c.weapon:
-            self._paste_icon(base, ctx.icons, c.weapon.icon, (658, 78, 78), fit=True)
-            self._stars(draw, (658, 128), c.weapon.rarity or 0, size=12, color=gold, anchor="mm")
-            self._draw_fit(draw, (714, 44), c.weapon.name or "--",
-                           max_width=360, size=20, weight=700, color=ivory, anchor="lm")
-            draw.text((714, 72), f"Lv. {c.weapon.level} / {_weapon_max_level(c.weapon)}",
+            self._paste_icon(base, ctx.icons, c.weapon.icon, (1170, 96, 96), fit=True)
+            self._stars(draw, (1170, 148), c.weapon.rarity or 0, size=12, color=gold, anchor="mm")
+            self._draw_fit(draw, (564, 58), (c.weapon.name or "--").upper(),
+                           max_width=520, size=22, weight=700, color=ivory, anchor="lm")
+            draw.text((564, 88), f"Lv. {c.weapon.level} / {_weapon_max_level(c.weapon)}",
                       font=self._pfont(14, 600), fill=muted, anchor="lm")
-            # Weapon stat pills
-            px = 714
-            if c.weapon.main_stat_value is not None:
-                draw_glass((px, 92, px + 104, 122), radius=8, fill=(32, 30, 42, 255))
-                draw.text((px + 52, 107), f"ATK {c.weapon.main_stat_value:,.0f}",
-                          font=self._pfont(13, 600), fill=ivory, anchor="mm")
-                px += 114
-            if c.weapon.sub_stat_value is not None:
-                draw_glass((px, 92, px + 110, 122), radius=8, fill=(32, 30, 42, 255))
-                draw.text((px + 55, 107), _weapon_sub_text(c.weapon.sub_stat_name, c.weapon.sub_stat_value),
-                          font=self._pfont(13, 600), fill=ivory, anchor="mm")
-            # Refinement badge on far right
-            draw_glass((1188, 44, 1238, 82), radius=8, fill=(42, 36, 40, 255), border=accent)
-            draw.text((1213, 63), f"R{c.weapon.refinement}", font=self._pfont(15, 700), fill=gold, anchor="mm")
+            draw_glass((664, 75, 704, 101), radius=6, fill=(44, 38, 42, 255), border=accent)
+            draw.text((684, 88), f"R{c.weapon.refinement}", font=self._pfont(13, 700), fill=gold, anchor="mm")
 
-        # -- middle row: two-column Stats & Talents/Set module (y=162..434) --
-        # Left sub-panel: Base Stats (x=392..866)
-        draw_glass((392, 162, 866, 434), radius=14)
-        draw.text((414, 182), "ATTRIBUTES", font=self._pfont(12, 700), fill=accent, anchor="lm")
+            px = 564
+            if c.weapon.main_stat_value is not None:
+                draw_glass((px, 114, px + 112, 144), radius=8, fill=(36, 34, 46, 240))
+                draw.text((px + 56, 129), f"ATK {c.weapon.main_stat_value:,.0f}",
+                          font=self._pfont(13, 600), fill=ivory, anchor="mm")
+                px += 122
+            if c.weapon.sub_stat_value is not None:
+                draw_glass((px, 114, px + 118, 144), radius=8, fill=(36, 34, 46, 240))
+                draw.text((px + 59, 129), _weapon_sub_text(c.weapon.sub_stat_name, c.weapon.sub_stat_value),
+                          font=self._pfont(13, 600), fill=ivory, anchor="mm")
+
+        # -- middle row: STATS (x=540..880) & TALENTS (x=896..1250), y=182..436 --
+        draw_glass((540, 182, 880, 436), radius=16)
+        draw.text((562, 204), "STATS", font=self._pfont(13, 700), fill=accent, anchor="lm")
         s = c.stats
+        # Large HP highlight
+        draw.text((562, 236), self._fmt(s.hp), font=self._pfont(26, 700), fill=ivory, anchor="lm")
+        draw.text((666, 240), "HP", font=self._pfont(13, 600), fill=muted, anchor="lm")
+
         stat_rows = [
-            ("Max HP", self._fmt(s.hp)),
             ("ATK", self._fmt(s.atk)),
             ("DEF", self._fmt(s.defense)),
-            ("Elemental Mastery", self._fmt(s.elemental_mastery)),
-            ("CRIT Rate", self._fmt(s.crit_rate, percent=True)),
+            ("EM", self._fmt(s.elemental_mastery)),
+            ("CRIT RATE", self._fmt(s.crit_rate, percent=True)),
             ("CRIT DMG", self._fmt(s.crit_dmg, percent=True)),
-            ("Energy Recharge", self._fmt(s.energy_recharge, percent=True)),
-            ("Elemental DMG Bonus", self._fmt(self._elemental_bonus(s, c.element), percent=True)),
+            ("ER", self._fmt(s.energy_recharge, percent=True)),
+            ("ELEM DMG", self._fmt(self._elemental_bonus(s, c.element), percent=True)),
         ]
         for idx, (label, val) in enumerate(stat_rows):
-            ry = 212 + idx * 27
+            ry = 274 + idx * 23
             if idx > 0:
-                draw.line((414, ry - 13, 844, ry - 13), fill=divider_col, width=1)
-            draw.text((414, ry), label, font=self._pfont(13, 400), fill=muted, anchor="lm")
-            draw.text((844, ry), val, font=self._pfont(14, 700), fill=ivory, anchor="rm")
+                draw.line((562, ry - 11, 858, ry - 11), fill=divider_col, width=1)
+            draw.text((562, ry), label, font=self._pfont(12, 600), fill=muted, anchor="lm")
+            draw.text((858, ry), val, font=self._pfont(14, 700), fill=ivory, anchor="rm")
 
-        # Right sub-panel: Talents & Set Bonus (x=882..1260)
-        draw_glass((882, 162, 1260, 304), radius=14)
-        draw.text((1071, 182), "TALENT LEVELS", font=self._pfont(12, 700), fill=accent, anchor="mm")
-        for tx, tal in zip((958, 1071, 1184), (c.talents or [])[:3]):
-            draw.ellipse((tx - 28, 202, tx + 28, 258), fill=(32, 30, 42, 255), outline=glass_border, width=1)
-            self._paste_icon(base, ctx.icons, tal.icon, (tx, 230, 44), fit=True)
+        # Right sub-panel: vertical TALENTS list
+        draw_glass((896, 182, 1250, 436), radius=16)
+        draw.text((918, 204), "TALENTS", font=self._pfont(13, 700), fill=accent, anchor="lm")
+        talent_names = ("NORMAL ATTACK", "ELEMENTAL SKILL", "ELEMENTAL BURST")
+        for idx, tal in enumerate((c.talents or [])[:3]):
+            ty = 252 + idx * 64
+            draw.ellipse((918, ty - 24, 966, ty + 24), fill=(38, 34, 48, 255), outline=accent, width=1)
+            self._paste_icon(base, ctx.icons, tal.icon, (942, ty, 40), fit=True)
+            draw.text((982, ty - 8), talent_names[idx] if idx < 3 else "TALENT",
+                      font=self._pfont(12, 700), fill=ivory, anchor="lm")
             crown = tal.level >= 10
-            draw.text((tx, 280), str(tal.level), font=self._pfont(17, 700),
-                      fill=gold if crown else ivory, anchor="mm")
+            draw.text((982, ty + 12), f"Lv. {tal.level}", font=self._pfont(13, 600),
+                      fill=gold if crown else muted, anchor="lm")
 
-        draw_glass((882, 318, 1260, 434), radius=14)
-        draw.text((904, 338), "SET BONUS", font=self._pfont(12, 700), fill=accent, anchor="lm")
-        set_name, set_count, set_icon = self._dominant_set(c.artifacts or [])
-        if set_icon:
-            self._paste_icon(base, ctx.icons, set_icon, (926, 384, 42), fit=True)
+        # -- bottom-right: unified ARTIFACTS glass panel (x=540..1250, y=454..696) --
+        draw_glass((540, 454, 1250, 696), radius=16)
+        draw.text((562, 476), "ARTIFACTS", font=self._pfont(13, 700), fill=accent, anchor="lm")
+        set_name, set_count, _ = self._dominant_set(c.artifacts or [])
         if set_name:
-            self._draw_fit(draw, (960, 374), set_name, max_width=280, size=16, weight=700, color=ivory, anchor="lm")
-            draw.text((960, 398), f"{set_count}-Piece Active", font=self._pfont(13, 600), fill=accent, anchor="lm")
-        else:
-            draw.text((1071, 384), "No Set Bonus", font=self._pfont(13, 400), fill=muted, anchor="mm")
+            draw.text((1228, 476), f"{set_name} ({set_count}-pc)",
+                      font=self._pfont(12, 600), fill=ivory, anchor="rm")
 
-        # -- bottom-right: horizontal 5-card Artifact Showcase (x=392..1260, y=450..700) --
-        card_w = 164
-        gap = 10
+        by_slot = {a.slot.lower(): a for a in (c.artifacts or [])}
+        col_w = 134
         for i, slot in enumerate(("flower", "plume", "sands", "goblet", "circlet")):
-            left = 392 + i * (card_w + gap)
-            right = left + card_w
-            top, bot = 450, 700
-            draw_glass((left, top, right, bot), radius=12)
-            # Top accent bar
-            draw.rounded_rectangle((left + 16, top, right - 16, top + 3), radius=2, fill=accent)
-
-            art = {a.slot.lower(): a for a in (c.artifacts or [])}.get(slot)
-            cx = (left + right) // 2
+            cx = 558 + i * col_w + col_w // 2
+            art = by_slot.get(slot)
             if art is None:
-                draw.text((cx, (top + bot) // 2), f"{slot.upper()}\nEmpty",
-                          font=self._pfont(12, 400), fill=muted, anchor="mm")
+                draw.text((cx, 580), slot.upper(), font=self._pfont(11, 600), fill=muted, anchor="mm")
                 continue
-
-            draw.text((left + 12, top + 18), slot.upper(), font=self._pfont(10, 700), fill=muted, anchor="lm")
-            draw.text((right - 12, top + 18), f"+{getattr(art, 'level', 20)}",
-                      font=self._pfont(10, 700), fill=accent, anchor="rm")
-
-            self._paste_icon(base, ctx.icons, art.icon, (cx, top + 58, 52), fit=True)
-            self._stars(draw, (cx, top + 92), art.rarity or 5, size=11, color=gold, anchor="mm")
-
+            self._paste_icon(base, ctx.icons, art.icon, (cx, 526, 56), fit=True)
+            self._stars(draw, (cx, 562), art.rarity or 5, size=10, color=gold, anchor="mm")
             if art.main_stat:
-                self._draw_fit(draw, (cx, top + 114), art.main_stat.name,
-                               max_width=card_w - 16, size=11, color=muted, anchor="mm")
-                self._draw_fit(draw, (cx, top + 134), _stat_value(art.main_stat, signed=False),
-                               max_width=card_w - 16, size=16, weight=700, color=ivory, anchor="mm")
-
-            draw.line((left + 12, top + 152, right - 12, top + 152), fill=divider_col, width=1)
+                self._draw_fit(draw, (cx, 582), art.main_stat.name, max_width=124, size=11, color=muted, anchor="mm")
+                self._draw_fit(draw, (cx, 600), _stat_value(art.main_stat, signed=False),
+                               max_width=124, size=15, weight=700, color=ivory, anchor="mm")
             for j, sub in enumerate(art.sub_stats[:4]):
-                sy = top + 168 + j * 21
-                self._draw_fit(draw, (left + 12, sy), sub.name,
-                               max_width=90, size=10, color=muted, anchor="lm")
-                self._draw_fit(draw, (right - 12, sy), _stat_value(sub, signed=True),
-                               max_width=54, size=10, weight=600, color=ivory, anchor="rm")
+                sy = 622 + j * 17
+                self._draw_fit(draw, (cx, sy), f"{sub.name} {_stat_value(sub, signed=True)}",
+                               max_width=126, size=10, color=muted, anchor="mm")
 
         return self._to_png(base)
 
