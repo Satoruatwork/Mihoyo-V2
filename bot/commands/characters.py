@@ -304,25 +304,14 @@ async def _render_card_png(app: AppContext, character: Character, player: Player
             app.artwork_service.get_portrait(character),
             app.artwork_service.get_images(icon_urls),
         )
-    # Production path: normalize -> slot-driven renderer -> 1536x864 PNG. The renderer does
-    # no I/O; every asset above is already resolved by the artwork service.
     async with atimed("render.profile_card"):
-        try:
-            data = from_character(
-                character, portrait=portrait, icons=icons,
-                glow=theme_for(character.element)["glow"],
-                adjustment=adjustment_for(character.id), player=player,
-            )
-            return await asyncio.to_thread(get_card_renderer().render, data)
-        except Exception:  # noqa: BLE001 - never fail a card on a rendering bug
-            logger.exception("[RENDERER] New renderer failed, using fallback renderer")
-            return await asyncio.to_thread(
-                app.renderer.render_profile_card,
-                CharacterCardContext(
-                    language=lang, character=character, player=player,
-                    portrait=portrait, icons=icons,
-                ),
-            )
+        return await asyncio.to_thread(
+            app.renderer.render_profile_card,
+            CharacterCardContext(
+                language=lang, character=character, player=player,
+                portrait=portrait, icons=icons,
+            ),
+        )
 
 
 async def _edit_media(query, photo: str | bytes, caption: str, markup: InlineKeyboardMarkup):
