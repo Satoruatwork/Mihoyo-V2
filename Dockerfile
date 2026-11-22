@@ -21,6 +21,7 @@ COPY bot ./bot
 COPY assets ./assets
 RUN mkdir -p assets/fonts assets/characters
 
-# BOT_TOKEN and REDIS_URL are provided by the deployment platform (Railway/Render)
-# as environment variables — never baked into the image.
+# BOT_TOKEN and the database URL (REDIS_URL / MONGODB_URL / POSTGRES_URL) are
+# provided by the deployment platform (Railway/Render) as environment variables —
+# never baked into the image.
 CMD ["python", "-m", "bot.main"]

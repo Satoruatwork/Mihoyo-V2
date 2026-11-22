@@ -1,5 +1,6 @@
-"""Persistence layer — Redis (Upstash) is the primary datastore.
+"""Persistence layer — pluggable backends (Redis, MongoDB, Postgres/Supabase, memory).
 
-``redis_client`` owns the async connection; ``store`` implements all persistent
-user/group/stats operations on top of it.
+``interfaces`` defines the contracts; ``store``/``mongo_store``/``postgres_store``
+implement them; ``factory.build_database`` selects the configured backend; ``local_store``
+is the file-backed fallback used by every backend via a circuit breaker.
 """

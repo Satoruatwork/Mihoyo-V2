@@ -6,8 +6,9 @@ import time
 from dataclasses import dataclass
 
 from bot import __version__
-from bot.database.redis_client import RedisClient
-from bot.database.store import RedisStore
+from bot.database.interfaces import DatabaseClient, UserStore
+from bot.database.redis_client import RedisClient  # noqa: F401 — backwards compat
+from bot.database.store import RedisStore  # noqa: F401 — backwards compat
 
 
 @dataclass(slots=True)
@@ -24,7 +25,7 @@ class StatsSnapshot:
 class StatsService:
     """Produces a live snapshot of bot statistics."""
 
-    def __init__(self, store: RedisStore, redis: RedisClient, started_at: float) -> None:
+    def __init__(self, store: UserStore, redis: DatabaseClient, started_at: float) -> None:
         self._store = store
         self._redis = redis
         self._started_at = started_at

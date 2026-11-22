@@ -14,7 +14,8 @@ from __future__ import annotations
 from typing import Callable
 
 from bot.api.hoyolab_client import HoyolabRedeemer
-from bot.database.store import RedisStore
+from bot.database.interfaces import UserStore
+from bot.database.store import RedisStore  # noqa: F401 — backwards compat
 from bot.services.redemption_service import RedeemResult, RedeemStatus
 from bot.utils.crypto import CookieCipher
 from bot.utils.logging import get_logger
@@ -28,7 +29,7 @@ RedeemerFactory = Callable[[str], HoyolabRedeemer]
 class HoyolabAuthService:
     def __init__(
         self,
-        users: RedisStore,
+        users: UserStore,
         cipher: CookieCipher,
         redeemer_factory: RedeemerFactory | None = None,
     ) -> None:

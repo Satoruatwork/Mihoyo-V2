@@ -13,7 +13,8 @@ import time
 from bot.api.akasha_client import AkashaClient
 from bot.api.character_metadata import is_placeholder_name
 from bot.api.enka_client import EnkaClient
-from bot.cache.redis_cache import RedisCache
+from bot.cache.interfaces import Cache
+from bot.cache.redis_cache import RedisCache  # noqa: F401 — backwards compat
 from bot.models.character import Character
 from bot.models.player import Showcase
 from bot.models.ranking import Ranking
@@ -43,7 +44,7 @@ class CharacterService:
         self,
         enka: EnkaClient,
         akasha: AkashaClient,
-        cache: RedisCache,
+        cache: Cache,
         ttl: int = 300,
     ) -> None:
         self._enka = enka
