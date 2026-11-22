@@ -9,6 +9,7 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Repository root (two levels up from this file: bot/config.py -> repo root).
@@ -22,6 +23,7 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
+        populate_by_name=True,
     )
 
     # Telegram
@@ -41,9 +43,19 @@ class Settings(BaseSettings):
     # bot token. Never commit a real value — keep it in the environment only.
     hoyolab_secret: str = ""
 
-    # Redis — the primary persistent datastore (Upstash-compatible).
+    # --- Database backend selection ---------------------------------------
+    # Which database driver to use for persistent storage. Supported values:
+    #   redis      — Upstash-compatible Redis (default, for backwards compat)
+    #   mongodb    — MongoDB / Atlas (requires MONGODB_URL)
+    #   postgres   — any Postgres (Supabase, Neon, self-hosted; requires POSTGRES_URL / DATABASE_URL)
+    #   supabase   — alias for postgres
+    #   memory     — in-process/memory + local file fallback (useful for tests/dev)
+    # If left empty, it is inferred from which URL is set (backwards compatible).
+    database_backend: str = Field(default="", validation_alias=AliasChoices("DATABASE_BACKEND", "database_backend", "DB_BACKEND", "db_backend", "DATABASE_TYPE", "database_type"))
+
+    # --- Redis — the primary persistent datastore (Upstash-compatible). ----
     # Upstash redis:// URLs are auto-upgraded to TLS (rediss://) by the Redis client.
-    redis_url: str = ""
+    redis_url: str = Field(default="", validation_alias=AliasChoices("REDIS_URL", "redis_url", "UPSTASH_REDIS_URL", "upstash_redis_url"))
 
     # Redis fast-fail tuning. Kept low so that when Redis is unreachable a command fails
     # in a couple of seconds (with a clear message) instead of hanging on long timeouts.
@@ -55,7 +67,29 @@ class Settings(BaseSettings):
     # don't repeatedly wait on a dead connection — they use the local fallback instead.
     redis_breaker_cooldown: float = 30.0
 
-    # Local fallback store: keeps logins/settings working when Redis is unreachable.
+    # --- MongoDB -----------------------------------------------------------
+    mongodb_url: str = Field(default="", validation_alias=AliasChoices("MONGODB_URL", "mongodb_url", "MONGO_URL", "mongo_url", "MONGODB_URI", "mongodb_uri", "MONGO_URI", "mongo_uri"))
+    mongodb_db: str = Field(default="mihoyo", validation_alias=AliasChoices("MONGODB_DB", "mongodb_db", "MONGO_DB", "mongo_db", "MONGODB_DATABASE", "mongodb_database"))
+
+    # --- Postgres / Supabase / Neon ---------------------------------------
+    # Accepts any of the common env names; all resolve to the same DSN.
+    # Both upper-case (env var) and lower-case (python kwarg) variants are listed.
+    postgres_url: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "POSTGRES_URL", "postgres_url",
+            "POSTGRES_DSN", "postgres_dsn",
+            "DATABASE_URL", "database_url",
+            "DATABASE_URI", "database_uri",
+            "SUPABASE_URL", "supabase_url",
+            "SUPABASE_DB_URL", "supabase_db_url",
+            "SUPABASE_DATABASE_URL", "supabase_database_url",
+            "NEON_DATABASE_URL", "neon_database_url",
+            "POSTGRESQL_URL", "postgresql_url",
+        ),
+    )
+
+    # Local fallback store: keeps logins/settings working when primary DB is unreachable.
     # Relative paths resolve under the repo root. Point at a mounted volume for durability.
     local_store_path: str = "data/local_store.json"
 
@@ -83,6 +117,44 @@ class Settings(BaseSettings):
 
     # Logging
     log_level: str = "INFO"
+
+    # ------------------------------------------------------------------
+    @property
+    def resolved_backend(self) -> str:
+        """Canonical backend name inferred from ``DATABASE_BACKEND`` or populated URLs."""
+        raw = (self.database_backend or "").strip().lower()
+        # Normalise aliases
+        aliases = {
+            "redis": "redis",
+            "mongodb": "mongodb", "mongo": "mongodb", "atlas": "mongodb",
+            "postgres": "postgres", "postgresql": "postgres", "psql": "postgres",
+            "supabase": "postgres", "neon": "postgres",
+            "memory": "memory", "local": "memory", "file": "memory", "inmemory": "memory",
+        }
+        if raw in aliases:
+            return aliases[raw]
+        if raw:
+            return raw  # unknown — let factory produce a helpful error
+        # Not set — infer from which URL is present (backwards compat: redis wins)
+        if self.postgres_url.strip():
+            return "postgres"
+        if self.mongodb_url.strip():
+            return "mongodb"
+        if self.redis_url.strip():
+            return "redis"
+        return "redis"  # default so existing deployments keep working
+
+    @property
+    def database_url(self) -> str:
+        """The URL/DSN for the resolved backend (convenience for logging/factory)."""
+        backend = self.resolved_backend
+        if backend == "mongodb":
+            return self.mongodb_url
+        if backend == "postgres":
+            return self.postgres_url
+        if backend == "redis":
+            return self.redis_url
+        return ""
 
     @property
     def session_secret(self) -> str:

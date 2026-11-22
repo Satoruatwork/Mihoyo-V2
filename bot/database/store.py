@@ -29,6 +29,8 @@ from typing import Any
 from redis.asyncio import Redis
 from redis.exceptions import RedisError
 
+from bot.database.circuit import CircuitBreaker
+from bot.database.interfaces import UserStore
 from bot.database.local_store import LocalStore
 from bot.utils.errors import DatastoreUnavailable
 from bot.utils.logging import get_logger
@@ -41,26 +43,8 @@ GROUPS_SET = "groups"
 INTERACTIONS = "stats:interactions"
 
 
-class _CircuitBreaker:
-    """Skip a known-down Redis for a cooldown so commands don't wait on it every time.
-
-    After a failure the circuit stays 'open' for ``cooldown`` seconds — while open, callers
-    go straight to the fallback instead of paying the connection timeout again. A success
-    closes it immediately.
-    """
-
-    def __init__(self, cooldown: float = 30.0) -> None:
-        self._cooldown = cooldown
-        self._open_until = 0.0
-
-    def is_open(self) -> bool:
-        return time.monotonic() < self._open_until
-
-    def record_failure(self) -> None:
-        self._open_until = time.monotonic() + self._cooldown
-
-    def record_success(self) -> None:
-        self._open_until = 0.0
+# Backwards compat: keep old name for tests that poke _breaker internals.
+_CircuitBreaker = CircuitBreaker
 
 
 def _user_key(tid: int) -> str:
@@ -75,7 +59,7 @@ def _now() -> int:
     return int(time.time())
 
 
-class RedisStore:
+class RedisStore(UserStore):
     """Async persistent store backed by Redis."""
 
     def __init__(
@@ -86,7 +70,7 @@ class RedisStore:
     ) -> None:
         self._r = redis
         self._fallback = fallback
-        self._breaker = _CircuitBreaker(breaker_cooldown)
+        self._breaker = CircuitBreaker(breaker_cooldown)
 
     def _skip_redis(self) -> bool:
         """True when we should bypass Redis (circuit open) and a fallback exists."""

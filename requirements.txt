@@ -11,8 +11,14 @@ genshin==1.7.28
 # Encryption at rest for stored HoYoLAB session cookies (/hoyologin)
 cryptography==49.0.0
 
-# Primary datastore (Upstash-compatible Redis, async)
+# Persistent datastores — pick one (or more) via DATABASE_BACKEND env var:
+#   redis      → Upstash-compatible Redis (default)
+#   mongodb    → MongoDB / Atlas (motor)
+#   postgres   → Postgres / Supabase / Neon (asyncpg)
+# Only the driver for your chosen backend needs to be installed; the others are optional.
 redis==8.0.1
+motor==3.7.1          # MongoDB async driver (optional — only if DATABASE_BACKEND=mongodb)
+asyncpg==0.32.0       # Postgres/Supabase async driver (optional — only if DATABASE_BACKEND=postgres)
 
 # Configuration
 pydantic==2.10.4
@@ -28,3 +34,4 @@ aiohttp==3.11.11
 pytest==8.3.4
 pytest-asyncio==0.25.2
 fakeredis==2.36.2
+mongomock-motor==0.0.36

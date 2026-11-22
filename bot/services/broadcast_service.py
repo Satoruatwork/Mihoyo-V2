@@ -14,7 +14,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Awaitable, Callable
 
-from bot.database.store import RedisStore
+from bot.database.interfaces import UserStore
+from bot.database.store import RedisStore  # noqa: F401 — re-exported for backwards compat
 from bot.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -63,7 +64,7 @@ ProgressFn = Callable[[int, BroadcastResult], Awaitable[None]]
 class BroadcastService:
     """Resolves broadcast audiences and drives a throttled fan-out."""
 
-    def __init__(self, users: RedisStore) -> None:
+    def __init__(self, users: UserStore) -> None:
         self._users = users
 
     async def recipients(self, target: BroadcastTarget) -> list[int]:

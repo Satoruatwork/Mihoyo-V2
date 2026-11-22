@@ -14,12 +14,13 @@ from typing import Any
 from redis.asyncio import Redis
 from redis.exceptions import RedisError
 
+from bot.cache.interfaces import Cache
 from bot.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
 
-class RedisCache:
+class RedisCache(Cache):
     """Namespaced JSON cache over Redis."""
 
     def __init__(self, redis: Redis, ttl: int = 300, prefix: str = "cache") -> None:

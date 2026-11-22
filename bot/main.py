@@ -40,7 +40,7 @@ from bot.commands import (
     tracking,
 )
 from bot.config import get_settings
-from bot.database.redis_client import mask_url, validate_redis_url
+from bot.database.factory import describe_backend, validate_backend_config
 from bot.translations.i18n import t
 from bot.utils.logging import configure_logging, get_logger
 
@@ -65,17 +65,16 @@ async def _bootstrap_assets() -> None:
         )
 
 
-async def _store_round_trip(application: Application, redis_ok: bool = True) -> None:
+async def _store_round_trip(application: Application, db_ok: bool = True) -> None:
     """Store + read back a Telegram user id, linked UID, language and setting, then clean up.
 
     Runs immediately after connecting so a broken persistence path is visible in the
     startup logs rather than only when a real user hits a command. Best-effort; never raises.
-    ``redis_ok`` is only used to label which backend actually served the round-trip, so the
-    log is never misread as "Redis works" when it was really the local fallback.
+    ``db_ok`` is only used to label which backend actually served the round-trip.
     """
     app_ctx = application.bot_data[BOT_DATA_KEY]
     store = app_ctx.users
-    backend = "Redis" if redis_ok else "LOCAL FALLBACK (not Redis)"
+    backend_label = describe_backend(app_ctx.settings) if db_ok else "LOCAL FALLBACK (not primary DB)"
     try:
         await store.get_or_create(_DIAG_TID, app_ctx.settings.default_language)
         await store.link_uid(_DIAG_TID, "800000000", app_ctx.settings.default_language)
@@ -88,7 +87,7 @@ async def _store_round_trip(application: Application, redis_ok: bool = True) -> 
         ok = uid == "800000000" and lang == "en" and setting == "1"
         logger.info(
             "Startup step 4/5: store round-trip via %s | uid=%r language=%r setting=%r -> %s",
-            backend, uid, lang, setting, "PASS" if ok else "FAIL",
+            backend_label, uid, lang, setting, "PASS" if ok else "FAIL",
         )
     except Exception as exc:  # noqa: BLE001
         logger.error(
@@ -96,29 +95,42 @@ async def _store_round_trip(application: Application, redis_ok: bool = True) -> 
             type(exc).__name__, exc, exc_info=True,
         )
     finally:
-        # Clean up the diagnostic keys regardless of outcome.
+        # Clean up the diagnostic keys (best-effort, works for any backend).
         try:
-            client = app_ctx.redis.client
-            await client.delete(f"user:{_DIAG_TID}", f"user:{_DIAG_TID}:settings")
-            await client.srem("users", _DIAG_TID)
+            await store.unlink_uid(_DIAG_TID)
+            await store.set_setting(_DIAG_TID, "diag", "")  # clear setting is best-effort
+            # For Redis backend, also try low-level cleanup if available.
+            client = getattr(app_ctx.db_client, "client", None)
+            if client is not None:
+                # Redis client has delete/srem; other backends don't — ignore.
+                try:
+                    await client.delete(f"user:{_DIAG_TID}", f"user:{_DIAG_TID}:settings")
+                    await client.srem("users", _DIAG_TID)
+                except Exception:
+                    pass
         except Exception as exc:  # noqa: BLE001
             logger.debug("Diagnostic key cleanup skipped: %s", exc)
+        # Also prune the diagnostic user from LocalStore / Postgres fallback via discard
+        try:
+            await store.discard_users([_DIAG_TID])
+        except Exception:
+            pass
 
 
 async def _post_init(application: Application) -> None:
-    """Build the dependency container and verify Redis before serving traffic.
+    """Build the dependency container and verify DB before serving traffic.
 
     Hardened so that *no* initialization failure can prevent the bot from reaching
     ``run_polling``: every step is logged, every exception is captured with a traceback,
     and the app context is always installed so command handlers can run (degraded, if
-    Redis is down) instead of KeyError-ing.
+    DB is down) instead of KeyError-ing.
     """
     logger.info("=== Bot initialization starting ===")
 
     # Step 1: assets (best-effort; guarded internally).
     await _bootstrap_assets()
 
-    # Step 2: dependency container (Redis pool, services, API clients, renderer).
+    # Step 2: dependency container (DB pool, services, API clients, renderer).
     try:
         app_ctx = build_app_context(get_settings())
         application.bot_data[BOT_DATA_KEY] = app_ctx
@@ -129,43 +141,46 @@ async def _post_init(application: Application) -> None:
         preload_locales()
         app_ctx.renderer.warmup()
         logger.info("Startup step 2/5: dependency container built + static caches warmed")
+        logger.info("Database backend: %s", describe_backend(app_ctx.settings))
     except Exception:
         logger.critical(
-            "Startup step 2/5: FAILED to build dependency container. The bot cannot "
-            "serve commands. Most likely REDIS_URL is malformed — see the error below.",
+            "Startup step 2/5: FAILED to build dependency container. Check database config — see error below.",
             exc_info=True,
         )
         # Re-raise: without a context there is nothing to serve, and PTB will surface
         # this clearly instead of the bot silently accepting updates it can't handle.
         raise
 
-    # Step 3: verify Redis + full CRUD self-test (connection/read/write/delete/ping).
-    redis_ok = await app_ctx.redis.verify()
-    if redis_ok:
-        logger.info("Startup step 3/5: Redis (primary datastore) is connected")
-        await app_ctx.redis.self_test()
+    # Step 3: verify DB + full CRUD self-test (connection/read/write/delete/ping).
+    db_ok = await app_ctx.db_client.verify()
+    if db_ok:
+        logger.info("Startup step 3/5: Database (%s) is connected", app_ctx.settings.resolved_backend)
+        try:
+            await app_ctx.db_client.self_test()
+        except Exception:
+            pass
     else:
         logger.error(
-            "Startup step 3/5: Redis connection could not be verified — running in "
-            "DEGRADED mode. Persistence and stats are unavailable until Redis recovers; "
+            "Startup step 3/5: Database connection could not be verified — running in "
+            "DEGRADED mode. Persistence and stats are unavailable until the database recovers; "
             "command handlers still run."
         )
 
     # Step 4: persistence round-trip (user id / uid / language / settings).
-    await _store_round_trip(application, redis_ok)
+    await _store_round_trip(application, db_ok)
 
     # Step 5: publish the command menu (best-effort).
     await _set_bot_commands(application)
     logger.info("Startup step 5/5: command menu published")
 
     # One unambiguous line stating where user data actually lives.
-    if redis_ok:
-        logger.info("DATABASE STATUS: CONNECTED (Redis) — logins persist across redeploys.")
+    if db_ok:
+        logger.info("DATABASE STATUS: CONNECTED (%s) — logins persist across redeploys.", app_ctx.settings.resolved_backend)
     else:
         logger.error(
             "DATABASE STATUS: NOT CONNECTED — using the LOCAL FALLBACK file. Logins will "
-            "NOT survive a redeploy until REDIS_URL points at a reachable database. "
-            "Run scripts/check_redis.py to diagnose."
+            "NOT survive a redeploy until the database URL is set and reachable. "
+            "Run scripts/check_db.py to diagnose."
         )
 
     # Last line before PTB's updater begins fetching updates.
@@ -173,7 +188,7 @@ async def _post_init(application: Application) -> None:
 
 
 async def _post_shutdown(application: Application) -> None:
-    logger.info("Shutdown: closing Redis pool and pooled HTTP sessions")
+    logger.info("Shutdown: closing database pool and pooled HTTP sessions")
     app_ctx = application.bot_data.get(BOT_DATA_KEY)
     if app_ctx is not None:
         try:
@@ -297,19 +312,19 @@ def _validate_environment(settings) -> None:
             "(from @BotFather); locally, copy .env.example to .env and set it."
         )
         sys.exit(1)
-    if not settings.redis_url:
-        logger.critical(
-            "REDIS_URL is not set. Redis is the primary datastore; set the REDIS_URL env "
-            "var to your Upstash 'Redis' connection URL "
-            "(rediss://default:<password>@<host>:6379)."
-        )
+
+    ok, message = validate_backend_config(settings)
+    if not ok:
+        # Provide backend-specific hint.
+        hint = {
+            "redis": "Set REDIS_URL to your Upstash 'Redis' connection URL (rediss://default:<password>@<host>:6379).",
+            "mongodb": "Set MONGODB_URL to your MongoDB connection string (mongodb://... or mongodb+srv://...).",
+            "postgres": "Set POSTGRES_URL / DATABASE_URL to your Postgres/Supabase connection string (postgres://...).",
+        }.get(settings.resolved_backend, "")
+        logger.critical("Database configuration invalid: %s %s", message, hint)
         sys.exit(1)
 
-    ok, message = validate_redis_url(settings.redis_url)
-    if not ok:
-        logger.critical("REDIS_URL is invalid: %s", message)
-        sys.exit(1)
-    logger.info("Environment validated: BOT_TOKEN present, REDIS_URL=%s", mask_url(settings.redis_url))
+    logger.info("Environment validated: BOT_TOKEN present, backend=%s (%s)", settings.resolved_backend, describe_backend(settings))
 
 
 def build_application() -> Application:
