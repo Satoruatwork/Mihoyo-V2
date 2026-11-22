@@ -9,6 +9,7 @@ the premium visual design is a later phase and only replaces the drawing code he
 from __future__ import annotations
 
 import io
+from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
@@ -604,29 +605,46 @@ class PillowRenderer(Renderer):
         except (ValueError, AttributeError):
             return None, None
 
+    def _abyss_serif(self, size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
+        """Editorial display face for the Abyss report, with a safe bundled fallback."""
+        cache = getattr(self, "_abyss_serif_cache", {})
+        key = (size, bold)
+        if key not in cache:
+            candidates = (
+                "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf" if bold
+                else "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf",
+                str(bootstrap.font_path()),
+            )
+            for candidate in candidates:
+                try:
+                    cache[key] = ImageFont.truetype(candidate, size)
+                    break
+                except (OSError, ValueError):
+                    continue
+            else:
+                cache[key] = ImageFont.load_default()
+            self._abyss_serif_cache = cache
+        return cache[key]
+
     def _abyss_portal(self, size: tuple[int, int]) -> Image.Image:
-        """Original abstract portal artwork used by the editorial Abyss card."""
-        import math
-        w, h = size
-        art = Image.new("RGBA", size, (239, 235, 253, 255))
-        draw = ImageDraw.Draw(art)
-        for y in range(0, h, 18):
-            draw.line((0, y, w, y), fill=(220, 213, 245, 90), width=1)
-        cx, cy = w // 2, h // 2 + 8
-        for radius in range(min(w, h) // 2, 38, -16):
-            t = (min(w, h) // 2 - radius) / max(1, min(w, h) // 2 - 38)
-            color = (int(85 + 65 * t), int(65 + 45 * t), int(180 + 25 * t), 235)
-            draw.ellipse((cx-radius, cy-radius, cx+radius, cy+radius), fill=color)
-        draw.ellipse((cx-45, cy-45, cx+45, cy+45), fill=(255, 255, 255, 245))
-        draw.ellipse((cx-28, cy-28, cx+28, cy+28), fill=(132, 102, 232, 255))
-        for start in (0, 120, 240):
-            points = []
-            for step in range(24):
-                angle = math.radians(start + step * 14)
-                radius = 48 + step * 6
-                points.append((cx + math.cos(angle) * radius, cy + math.sin(angle) * radius * .72))
-            draw.line(points, fill=(255, 255, 255, 145), width=2)
-        return art
+        """Crop the original repository-owned portal painting into a cinematic panel."""
+        source = Path(__file__).parents[1] / "assets" / "images" / "abyss_portal.png"
+        try:
+            art = Image.open(source).convert("RGBA")
+            scale = max(size[0] / art.width, size[1] / art.height)
+            art = art.resize((round(art.width * scale), round(art.height * scale)), Image.Resampling.LANCZOS)
+            x = max(0, (art.width - size[0]) // 2)
+            y = max(0, (art.height - size[1]) // 2)
+            art = art.crop((x, y, x + size[0], y + size[1]))
+        except (OSError, ValueError):
+            art = Image.new("RGBA", size, (55, 42, 105, 255))
+        # Ivory atmospheric veil ties the painting to the pale editorial surface.
+        veil = Image.new("RGBA", size, (235, 226, 255, 0))
+        vd = ImageDraw.Draw(veil)
+        for y in range(size[1]):
+            alpha = int(34 + 90 * max(0, (y / size[1] - .72) / .28))
+            vd.line((0, y, size[0], y), fill=(240, 233, 255, alpha))
+        return Image.alpha_composite(art, veil)
 
     def render_abyss_card(self, ctx: AbyssCardContext) -> bytes:
         """Render an original editorial three-panel Spiral Abyss report."""
@@ -655,24 +673,26 @@ class PillowRenderer(Renderer):
         draw.rounded_rectangle(right, radius=16, fill=(17, 15, 29), outline=(35, 31, 53))
 
         # Left — a bespoke abstract portal rather than copied game key art.
-        portal = self._abyss_portal((344, 420))
+        portal = self._abyss_portal((344, 520))
         mask = Image.new("L", portal.size, 0)
-        ImageDraw.Draw(mask).rounded_rectangle((0, 0, 343, 419), radius=12, fill=255)
+        ImageDraw.Draw(mask).rounded_rectangle((0, 0, 343, 519), radius=12, fill=255)
         base.paste(portal, (24, 56), mask)
-        draw.rounded_rectangle((24, 22, 180, 43), radius=6, fill=(29, 25, 44))
+        draw.rounded_rectangle((24, 22, 180, 43), radius=4, fill=(29, 25, 44))
         cycle = "PREVIOUS" if previous else "CURRENT"
-        draw.text((33, 32), f"◆  SPIRAL ABYSS  ·  {cycle}", font=self._pfont(8, 700), fill=(235, 227, 255), anchor="lm")
-        draw.rounded_rectangle((24, 496, 368, 665), radius=11, fill=(255, 255, 255, 225))
+        draw.text((33, 32), f"✦  SPIRAL ABYSS  ·  {cycle}", font=self._pfont(8, 700), fill=(235, 227, 255), anchor="lm")
+        # A translucent inscription floats over the mist instead of blocking the artwork.
+        draw.rounded_rectangle((44, 492, 348, 634), radius=8, fill=(252, 249, 255, 224), outline=(255, 255, 255, 235))
         quote = "The deeper the descent,\nthe brighter resolve becomes."
-        draw.multiline_text((196, 536), quote, font=self._pfont(12, 500), fill=(81, 76, 104), anchor="mm", align="center", spacing=5)
-        draw.text((196, 580), "—  ABYSSAL ARCHIVE", font=self._pfont(8, 600), fill=muted, anchor="mm")
+        draw.multiline_text((196, 532), quote, font=self._abyss_serif(14), fill=(65, 57, 91), anchor="mm", align="center", spacing=7)
+        draw.line((128, 581, 264, 581), fill=(164, 150, 199), width=1)
+        draw.text((196, 601), "✦  ABYSSAL ARCHIVE  ✦", font=self._pfont(7, 600), fill=muted, anchor="mm")
         draw.text((26, 693), "◆  TEYVAT  ·  SPIRAL ABYSS", font=self._pfont(7, 600), fill=muted, anchor="lm")
 
         # Middle — clear report hierarchy with only data supplied by the API.
         mx0, mx1 = middle[0], middle[2]
         draw.text((mx0+20, 33), "G E N S H I N   I M P A C T", font=self._pfont(8, 600), fill=muted, anchor="lm")
-        draw.text((mx0+20, 61), "Spiral Abyss", font=self._pfont(28, 800), fill=ink, anchor="lm")
-        draw.text((mx0+20, 84), "A record from beyond the threshold", font=self._pfont(11, 500), fill=(105, 85, 183), anchor="lm")
+        draw.text((mx0+20, 62), "Spiral Abyss", font=self._abyss_serif(32, True), fill=ink, anchor="lm")
+        draw.text((mx0+20, 88), "Deepest domain of challenge", font=self._abyss_serif(12), fill=(105, 85, 183), anchor="lm")
         draw.line((mx0+20, 103, mx1-20, 103), fill=(226, 221, 241), width=1)
         current = str(floor or "—")
         best = a.max_floor if a and a.max_floor else "—"
@@ -738,7 +758,7 @@ class PillowRenderer(Renderer):
         # Right — compact floor ledger; no invented lineups or rewards.
         rx0, rx1 = right[0], right[2]
         draw.text((rx0+18, 31), "GENSHIN IMPACT  ·  ABYSS", font=self._pfont(7, 600), fill=(137, 129, 172), anchor="lm")
-        draw.text((rx0+18, 54), "Floor Details", font=self._pfont(19, 800), fill=ivory, anchor="lm")
+        draw.text((rx0+18, 56), "Floor Details", font=self._abyss_serif(22, True), fill=ivory, anchor="lm")
         draw.text((rx1-28, 46), "◇", font=self._pfont(24), fill=(116, 95, 210), anchor="mm")
         chamber_map = {(c.floor, c.chamber): c.stars for c in (a.chambers if a else [])}
         y = 84
@@ -746,10 +766,14 @@ class PillowRenderer(Renderer):
             reached = bool(floor and fl <= floor)
             active = fl == floor
             fill = (47, 39, 73) if active else (28, 24, 43)
-            border = violet if active else (47, 42, 65)
-            draw.rounded_rectangle((rx0+14, y, rx1-14, y+108), radius=10, fill=fill, outline=border, width=1)
+            border = (164, 116, 255) if active else (47, 42, 65)
             if active:
-                draw.rectangle((rx0+15, y, rx1-15, y+2), fill=violet)
+                # Layered violet keyline gives the selected floor a restrained magical glow.
+                draw.rounded_rectangle((rx0+10, y-4, rx1-10, y+112), radius=13, outline=(104, 70, 184), width=2)
+                draw.rounded_rectangle((rx0+12, y-2, rx1-12, y+110), radius=12, outline=(139, 88, 235), width=2)
+            draw.rounded_rectangle((rx0+14, y, rx1-14, y+108), radius=10, fill=fill, outline=border, width=2 if active else 1)
+            if active:
+                draw.rectangle((rx0+16, y+1, rx1-16, y+3), fill=(191, 137, 255))
             draw.text((rx0+52, y+54), str(fl), font=self._pfont(28, 800), fill=ivory if reached else (143, 136, 173), anchor="mm")
             draw.line((rx0+86, y+12, rx0+86, y+96), fill=(104, 96, 134), width=1)
             for ch in (1, 2, 3):
