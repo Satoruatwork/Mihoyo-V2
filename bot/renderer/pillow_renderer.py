@@ -594,260 +594,184 @@ class PillowRenderer(Renderer):
         return self._to_png(img)
 
     # ------------------------------------------------------------------ Abyss helpers
-    def _abyss_canvas(self) -> Image.Image:
-        """1280×720 Abyssal Void canvas — violet nebula + abyss-blue depth."""
-        w, h = card_layout.CARD_SIZE
-        base = Image.new("RGBA", (w, h), (10, 11, 18, 255))
-        glow = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-        gd = ImageDraw.Draw(glow)
-        gd.ellipse((780, -180, 1450, 480), fill=(124, 106, 230, 45))
-        gd.ellipse((-120, 380, 620, 900), fill=(60, 90, 200, 35))
-        gd.ellipse((420, 120, 860, 600), fill=(124, 106, 230, 18))
-        glow = glow.filter(ImageFilter.GaussianBlur(65))
-        base.alpha_composite(glow)
-        stars = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-        sd = ImageDraw.Draw(stars)
-        import random
-        random.seed(7)
-        for _ in range(80):
-            x = random.randint(0, w); y = random.randint(0, h)
-            r = random.choice([1, 1, 2]); a = random.randint(40, 120)
-            sd.ellipse((x, y, x + r, y + r), fill=(200, 200, 255, a))
-        stars = stars.filter(ImageFilter.GaussianBlur(0.5))
-        base.alpha_composite(stars)
-        spiral = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-        sdraw = ImageDraw.Draw(spiral)
-        cx, cy = w // 2, h // 2
-        for rr in (120, 200, 280):
-            sdraw.ellipse((cx - rr, cy - rr, cx + rr, cy + rr), outline=(124, 106, 230, 18), width=1)
-        spiral = spiral.filter(ImageFilter.GaussianBlur(1))
-        base.alpha_composite(spiral)
-        return base
-
     @staticmethod
     def _parse_max_floor(max_floor: str | None) -> tuple[int | None, int | None]:
         if not max_floor:
             return None, None
         try:
-            if "-" in max_floor:
-                f, c = max_floor.split("-", 1)
-                return int(f.strip()), int(c.strip())
-            return int(max_floor.strip()), None
+            floor, _, chamber = max_floor.partition("-")
+            return int(floor.strip()), int(chamber.strip()) if chamber else None
         except (ValueError, AttributeError):
             return None, None
 
+    def _abyss_portal(self, size: tuple[int, int]) -> Image.Image:
+        """Original abstract portal artwork used by the editorial Abyss card."""
+        import math
+        w, h = size
+        art = Image.new("RGBA", size, (239, 235, 253, 255))
+        draw = ImageDraw.Draw(art)
+        for y in range(0, h, 18):
+            draw.line((0, y, w, y), fill=(220, 213, 245, 90), width=1)
+        cx, cy = w // 2, h // 2 + 8
+        for radius in range(min(w, h) // 2, 38, -16):
+            t = (min(w, h) // 2 - radius) / max(1, min(w, h) // 2 - 38)
+            color = (int(85 + 65 * t), int(65 + 45 * t), int(180 + 25 * t), 235)
+            draw.ellipse((cx-radius, cy-radius, cx+radius, cy+radius), fill=color)
+        draw.ellipse((cx-45, cy-45, cx+45, cy+45), fill=(255, 255, 255, 245))
+        draw.ellipse((cx-28, cy-28, cx+28, cy+28), fill=(132, 102, 232, 255))
+        for start in (0, 120, 240):
+            points = []
+            for step in range(24):
+                angle = math.radians(start + step * 14)
+                radius = 48 + step * 6
+                points.append((cx + math.cos(angle) * radius, cy + math.sin(angle) * radius * .72))
+            draw.line(points, fill=(255, 255, 255, 145), width=2)
+        return art
+
     def render_abyss_card(self, ctx: AbyssCardContext) -> bytes:
-        lang = ctx.language
-        a = ctx.abyss
-        player = ctx.player
-        is_prev = bool(a and a.is_previous)
-        title_raw = t("abyss.pre_title" if is_prev else "abyss.title", lang)
-        title = _strip_tags(title_raw).strip() or ("SPIRAL ABYSS" if not is_prev else "SPIRAL ABYSS — PREVIOUS")
+        """Render an original editorial three-panel Spiral Abyss report."""
+        a, player = ctx.abyss, ctx.player
+        available = bool(a and a.available)
+        previous = bool(a and a.is_previous)
+        floor, chamber = self._parse_max_floor(a.max_floor if a else None)
+        stars = a.total_stars if a and a.total_stars is not None else 0
+        uid = (player.uid if player and player.uid else (a.uid if a else "")) or ""
 
-        # Empty / unavailable state — still premium, not placeholder
-        if not a or not a.available:
-            base = self._abyss_canvas()
-            draw = ImageDraw.Draw(base)
-            # header
-            draw.rounded_rectangle((0, 0, 1280, 4), radius=0, fill=(124, 106, 230, 255))
-            ex, ey = 68, 48
-            draw.ellipse((ex - 26, ey - 26, ex + 26, ey + 26), fill=(124, 106, 230, 35))
-            draw.ellipse((ex - 22, ey - 22, ex + 22, ey + 22), outline=(124, 106, 230, 255), width=2)
-            draw.text((ex, ey + 1), "◎", font=self._pfont(26, 700), fill=(124, 106, 230, 255), anchor="mm")
-            draw.text((102, 26), title.upper(), font=self._pfont(22, 700), fill=(248, 244, 238), anchor="lm")
-            sub = "PREVIOUS CYCLE  •  ARCHIVED" if is_prev else "SPIRAL ABYSS  •  CORRIDOR & LUNAR CHAMBERS"
-            draw.text((102, 48), sub, font=self._pfont(11, 600), fill=(165, 160, 180), anchor="lm")
-            # uid pill if known
-            if player and player.uid:
-                draw.rounded_rectangle((980, 22, 1250, 62), radius=18, fill=(20, 18, 26, 230), outline=(110, 102, 128, 120), width=1)
-                draw.text((1232, 36), f"UID  {player.uid}", font=self._pfont(12, 600), fill=(165, 160, 180), anchor="rm")
-                nick = getattr(player, 'nickname', '') or ''
-                if nick:
-                    draw.text((1232, 52), f"{nick}  •  AR {player.level or ''}".strip(" • "), font=self._pfont(11, 400), fill=(248, 244, 238), anchor="rm")
-            # empty card
-            draw.rounded_rectangle((320, 220, 960, 560), radius=20, fill=(22, 20, 30, 225), outline=(95, 78, 140, 140), width=1)
-            draw.text((640, 300), "◈", font=self._pfont(40), fill=(124, 106, 230, 255), anchor="mm")
-            msg = _strip_tags(t("abyss.unavailable", lang))
-            draw.text((640, 340), msg, font=self._pfont(16, 600), fill=(248, 244, 238), anchor="mm")
-            draw.text((640, 365), "Clear Floor 9+ and make your profile public to reveal your records.", font=self._pfont(11, 400), fill=(165, 160, 180), anchor="mm")
-            return self._to_png(base)
-
-        # Rich card
-        base = self._abyss_canvas()
+        w, h = card_layout.CARD_SIZE
+        base = Image.new("RGBA", (w, h), (11, 10, 20, 255))
         draw = ImageDraw.Draw(base)
-        ivory = (248, 244, 238); muted = (165, 160, 180); muted2 = (110, 108, 128)
-        accent = (124, 106, 230); accent2 = (90, 210, 255); gold = (236, 194, 96)
+        ivory, ink = (248, 246, 252), (30, 27, 44)
+        muted, violet, gold = (145, 139, 169), (124, 92, 232), (250, 211, 105)
+        left, middle, right = (12, 12, 380, 708), (392, 12, 880, 708), (892, 12, 1268, 708)
 
-        def glass(box, r=16, fill=(22, 20, 30, 215), border=(95, 78, 140, 180)):
-            draw.rounded_rectangle(box, radius=r, fill=fill, outline=border, width=1)
+        # restrained star field behind the editorial panels
+        import random
+        random.seed(12)
+        for _ in range(55):
+            x, y = random.randrange(w), random.randrange(h)
+            draw.point((x, y), fill=(206, 197, 255, random.randrange(55, 125)))
+        draw.rounded_rectangle(left, radius=16, fill=(242, 238, 255), outline=(177, 163, 230))
+        draw.rounded_rectangle(middle, radius=16, fill=(252, 250, 255), outline=(225, 220, 240))
+        draw.rounded_rectangle(right, radius=16, fill=(17, 15, 29), outline=(35, 31, 53))
 
-        # header
-        draw.rounded_rectangle((0, 0, 1280, 4), radius=0, fill=(*accent, 255))
-        ex, ey = 68, 48
-        draw.ellipse((ex - 26, ey - 26, ex + 26, ey + 26), fill=(*accent, 35))
-        draw.ellipse((ex - 22, ey - 22, ex + 22, ey + 22), outline=(*accent, 255), width=2)
-        draw.text((ex, ey + 1), "◎", font=self._pfont(26, 700), fill=(*accent, 255), anchor="mm")
-        draw.text((102, 26), title.upper(), font=self._pfont(22, 700), fill=ivory, anchor="lm")
-        sub = "PREVIOUS CYCLE  •  ARCHIVED" if is_prev else "SPIRAL ABYSS  •  CORRIDOR & LUNAR CHAMBERS"
-        draw.text((102, 48), sub, font=self._pfont(11, 600), fill=muted, anchor="lm")
-        # uid pill
-        uid_txt = player.uid if (player and player.uid) else (a.uid or "")
-        nick = getattr(player, 'nickname', '') if player else ""
-        if uid_txt:
-            draw.rounded_rectangle((980, 22, 1250, 62), radius=18, fill=(20, 18, 26, 230), outline=(110, 102, 128, 120), width=1)
-            draw.text((1232, 36), f"UID  {uid_txt}", font=self._pfont(12, 600), fill=muted, anchor="rm")
-            label = nick.strip() if nick else ""
-            if label:
-                level = getattr(player, 'level', None)
-                suffix = f"  •  AR {level}" if level else ""
-                draw.text((1232, 52), f"{label}{suffix}", font=self._pfont(11, 400), fill=ivory, anchor="rm")
-            else:
-                draw.text((1232, 52), "Traveler", font=self._pfont(11, 400), fill=ivory, anchor="rm")
-            cycle = "CYCLE  •  15 DEC — 31 DEC  2025" if not is_prev else "CYCLE  •  01 NOV — 15 NOV  2025"
-            draw.rounded_rectangle((980, 68, 1250, 88), radius=8, fill=(*accent, 28))
-            draw.text((1115, 78), cycle, font=self._pfont(10, 600), fill=(190, 180, 220), anchor="mm")
+        # Left — a bespoke abstract portal rather than copied game key art.
+        portal = self._abyss_portal((344, 420))
+        mask = Image.new("L", portal.size, 0)
+        ImageDraw.Draw(mask).rounded_rectangle((0, 0, 343, 419), radius=12, fill=255)
+        base.paste(portal, (24, 56), mask)
+        draw.rounded_rectangle((24, 22, 180, 43), radius=6, fill=(29, 25, 44))
+        cycle = "PREVIOUS" if previous else "CURRENT"
+        draw.text((33, 32), f"◆  SPIRAL ABYSS  ·  {cycle}", font=self._pfont(8, 700), fill=(235, 227, 255), anchor="lm")
+        draw.rounded_rectangle((24, 496, 368, 665), radius=11, fill=(255, 255, 255, 225))
+        quote = "The deeper the descent,\nthe brighter resolve becomes."
+        draw.multiline_text((196, 536), quote, font=self._pfont(12, 500), fill=(81, 76, 104), anchor="mm", align="center", spacing=5)
+        draw.text((196, 580), "—  ABYSSAL ARCHIVE", font=self._pfont(8, 600), fill=muted, anchor="mm")
+        draw.text((26, 693), "◆  TEYVAT  ·  SPIRAL ABYSS", font=self._pfont(7, 600), fill=muted, anchor="lm")
 
-        # Parse max floor
-        max_floor_str = a.max_floor or "--"
-        mf_floor, mf_chamber = self._parse_max_floor(a.max_floor)
+        # Middle — clear report hierarchy with only data supplied by the API.
+        mx0, mx1 = middle[0], middle[2]
+        draw.text((mx0+20, 33), "G E N S H I N   I M P A C T", font=self._pfont(8, 600), fill=muted, anchor="lm")
+        draw.text((mx0+20, 61), "Spiral Abyss", font=self._pfont(28, 800), fill=ink, anchor="lm")
+        draw.text((mx0+20, 84), "A record from beyond the threshold", font=self._pfont(11, 500), fill=(105, 85, 183), anchor="lm")
+        draw.line((mx0+20, 103, mx1-20, 103), fill=(226, 221, 241), width=1)
+        current = str(floor or "—")
+        best = a.max_floor if a and a.max_floor else "—"
+        for i, (label, value) in enumerate((("CURRENT FLOOR", current), ("BEST RECORD", best), ("STARS EARNED", str(stars) if available else "—"))):
+            x = mx0 + 20 + i * 150
+            draw.text((x, 120), label, font=self._pfont(7, 700), fill=muted, anchor="lm")
+            draw.text((x, 144), value, font=self._pfont(22, 800), fill=ink, anchor="lm")
+            if i == 2 and available:
+                width = draw.textlength(value, font=self._pfont(22, 800))
+                draw.text((x+width+5, 146), "/ 36", font=self._pfont(9, 600), fill=muted, anchor="lm")
+        draw.text((mx0+20, 174), f"◆  {cycle} CYCLE", font=self._pfont(7, 700), fill=violet, anchor="lm")
+        if uid:
+            draw.text((mx1-20, 174), f"UID  {uid}", font=self._pfont(8, 600), fill=(92, 87, 112), anchor="rm")
+        draw.line((mx0+20, 185, mx1-20, 185), fill=(232, 227, 245), width=1)
 
-        # LEFT PANEL
-        glass((32, 108, 520, 688), r=20, fill=(22, 20, 30, 225), border=(95, 78, 140, 140))
-        draw.rounded_rectangle((32, 108, 520, 112), radius=2, fill=(*accent, 255))
-        draw.text((56, 138), "DEEPEST DESCENT", font=self._pfont(11, 700), fill=(*accent, 255), anchor="lm")
-        draw.text((56, 188), max_floor_str.replace("-", " — "), font=self._pfont(62, 300), fill=ivory, anchor="lm")
-        draw.text((262, 174), "MAX", font=self._pfont(10, 700), fill=muted, anchor="lm")
-        draw.text((262, 188), "FLOOR", font=self._pfont(10, 700), fill=muted, anchor="lm")
-        draw.line((56, 216, 496, 216), fill=(60, 56, 78, 180), width=1)
-        # mini stats
-        total_stars = a.total_stars
-        stars_txt = f"{total_stars}" if total_stars is not None else "—"
-        stars_sub = f"/ 36  ★" if total_stars is not None else "STARS"
-        # chambers count: from chambers list or derived
-        if a.chambers:
-            chambers_done = len(a.chambers)
-            chambers_total = 12
-            chambers_val = f"{chambers_done} / {chambers_total}"
+        if not available:
+            draw.rounded_rectangle((mx0+16, 202, mx1-16, 430), radius=12, fill=(245, 241, 255), outline=(216, 205, 245))
+            draw.text(((mx0+mx1)//2, 270), "◇", font=self._pfont(40, 700), fill=violet, anchor="mm")
+            draw.text(((mx0+mx1)//2, 322), "NO ABYSS RECORD FOUND", font=self._pfont(15, 800), fill=ink, anchor="mm")
+            draw.text(((mx0+mx1)//2, 355), "Clear Floor 9+ and enable Battle Chronicle\nto reveal this cycle's progress.", font=self._pfont(10, 500), fill=muted, anchor="mm", align="center")
         else:
-            # estimate: if max is 12-3 => 12/12, if 11-2 => 10/12 etc rough
-            if mf_floor is not None:
-                est = max(0, (mf_floor - 9) * 3 + (mf_chamber or 0)) if mf_floor >= 9 else 0
-                chambers_val = f"{est} / 12"
-            else:
-                chambers_val = "— / 12"
-        battles = a.total_battles
-        battles_val = f"{battles}" if battles is not None else "—"
-        battles_sub = f"WINS {a.total_wins}" if a.total_wins is not None else ("BATTLES" if battles is None else "CLEARED")
-        for i, (label, val, sub) in enumerate([("TOTAL STARS", stars_txt, stars_sub), ("CHAMBERS", chambers_val, "CLEARED" if "12" in chambers_val else battles_sub if i==2 else "CLEARED"), ("BATTLES", battles_val, battles_sub)]):
-            # fix second entry sub properly
-            if i == 1:
-                sub = "CLEARED"
-            x0 = 56 + i * 148; x1 = x0 + 138
-            draw.rounded_rectangle((x0, 232, x1, 302), radius=12, fill=(32, 28, 44, 255), outline=(70, 66, 90, 120), width=1)
-            draw.text((x0 + 12, 248), label, font=self._pfont(9, 700), fill=muted, anchor="lm")
-            draw.text((x0 + 12, 272), val, font=self._pfont(18, 700), fill=ivory, anchor="lm")
-            off = draw.textlength(val, font=self._pfont(18, 700))
-            draw.text((x0 + 14 + off, 274), sub, font=self._pfont(9, 600), fill=gold if "★" in sub else muted, anchor="lm")
-        # floor progress
-        draw.text((56, 324), "FLOOR PROGRESS", font=self._pfont(11, 700), fill=(*accent, 255), anchor="lm")
-        # build star map from chambers if available else infer from max_floor
-        star_map: dict[int, list[int]] = {9: [0, 0, 0], 10: [0, 0, 0], 11: [0, 0, 0], 12: [0, 0, 0]}
-        if a.chambers:
-            for ch in a.chambers:
-                if ch.floor in star_map and 1 <= ch.chamber <= 3:
-                    star_map[ch.floor][ch.chamber - 1] = max(0, min(3, ch.stars))
-        else:
-            # inference from max_floor
-            if mf_floor is not None:
-                for f in (9, 10, 11, 12):
-                    if f < mf_floor:
-                        star_map[f] = [3, 3, 3]
-                    elif f == mf_floor:
-                        cnum = mf_chamber or 0
-                        for ci in range(3):
-                            star_map[f][ci] = 3 if ci < cnum else 0
-                    else:
-                        star_map[f] = [0, 0, 0]
-        for idx in range(4):
-            fnum = 9 + idx; x0 = 56 + idx * 112; x1 = x0 + 102; y0 = 344
-            is_cur = (mf_floor is not None and fnum == mf_floor)
-            fill = (*accent, 40) if is_cur else (28, 26, 38, 255)
-            border = (*accent, 255) if is_cur else (60, 56, 78, 140)
-            draw.rounded_rectangle((x0, y0, x1, y0 + 138), radius=14, fill=fill, outline=border, width=1)
-            draw.text((x0 + 51, y0 + 20), f"{fnum}", font=self._pfont(18, 700), fill=ivory if is_cur else muted, anchor="mm")
-            draw.text((x0 + 51, y0 + 34), "FLOOR", font=self._pfont(9, 600), fill=muted, anchor="mm")
-            draw.line((x0 + 12, y0 + 44, x1 - 12, y0 + 44), fill=(60, 56, 78, 140), width=1)
-            for c in range(3):
-                cy = y0 + 60 + c * 22; stars_val = star_map[fnum][c]
-                draw.ellipse((x0 + 14, cy - 6, x0 + 26, cy + 6), fill=gold if stars_val == 3 else (80, 76, 94, 255) if stars_val > 0 else (55, 53, 68, 255))
-                draw.text((x0 + 32, cy), f"C{c+1}", font=self._pfont(10, 600), fill=ivory, anchor="lm")
-                s = "★" * stars_val + "☆" * (3 - stars_val) if stars_val else "—"
-                draw.text((x1 - 10, cy), s, font=self._pfont(10, 600), fill=gold if stars_val else muted, anchor="rm")
-            if is_cur:
-                draw.rounded_rectangle((x0, y0 + 134, x1, y0 + 138), radius=2, fill=(*accent, 255))
-        draw.text((56, 512), "Abyssal Moon Spire  •  Blessing:  Lunar Phase +20% DMG", font=self._pfont(11, 400), fill=muted, anchor="lm")
-        # perfect clear banner if applicable
-        if total_stars == 36:
-            draw.rounded_rectangle((56, 534, 496, 570), radius=10, fill=(236, 194, 96, 18), outline=(236, 194, 96, 90), width=1)
-            draw.text((66, 552), "✦  Perfect Clear  •  All chambers 9★", font=self._pfont(11, 700), fill=gold, anchor="lm")
-            draw.text((486, 552), "36★", font=self._pfont(12, 700), fill=gold, anchor="rm")
-        draw.text((56, 592), "Data from Enka.Network  •  updates hourly", font=self._pfont(10, 400), fill=muted2, anchor="lm")
-        draw.ellipse((440, 598, 488, 646), fill=(*accent, 14))
-        draw.text((464, 622), "◉", font=self._pfont(16), fill=(*accent, 60), anchor="mm")
-
-        # RIGHT PANEL
-        glass((540, 108, 1248, 688), r=20, fill=(22, 20, 30, 225), border=(95, 78, 140, 140))
-        draw.rounded_rectangle((540, 108, 1248, 112), radius=2, fill=(*accent2, 255))
-        draw.text((564, 138), "CHAMBER BREAKDOWN", font=self._pfont(11, 700), fill=(*accent2, 255), anchor="lm")
-        draw.text((1226, 138), "SEASON 4.8", font=self._pfont(10, 600), fill=muted, anchor="rm")
-        draw.rounded_rectangle((564, 158, 1224, 182), radius=8, fill=(32, 28, 44, 255))
-        for tx, lab in [(600, "FLOOR"), (760, "CHAMBER"), (900, "STARS"), (1076, "PARTY / STATUS")]:
-            draw.text((tx, 170), lab, font=self._pfont(10, 700), fill=muted, anchor="mm")
-        # Build rows: prefer chambers data if present, else synthetic from star_map
-        rows = []
-        if a.chambers:
-            # sort descending by floor/chamber and take up to 6
-            sorted_ch = sorted(a.chambers, key=lambda c: (c.floor, c.chamber), reverse=True)[:6]
-            for ch in sorted_ch:
-                stars_s = "★" * ch.stars + "☆" * (3 - ch.stars) if ch.stars else "—"
-                rows.append((str(ch.floor), str(ch.chamber), stars_s, "—"))
-        else:
-            # synthetic 6 rows from floors 12 down to 11 etc (no HoYoLAB party data yet)
-            for fl, ch in [(12, 3), (12, 2), (12, 1), (11, 3), (11, 2), (11, 1)]:
-                s = star_map.get(fl, [0, 0, 0])[ch - 1]
-                beyond = mf_floor is not None and (fl > mf_floor or (fl == mf_floor and ch > (mf_chamber or 0)))
-                if beyond:
-                    rows.append((str(fl), str(ch), "—", "Locked"))
-                elif s:
-                    stars_s = "★" * s + "☆" * (3 - s)
-                    rows.append((str(fl), str(ch), stars_s, "Cleared"))
+            # Progress dossier
+            draw.rounded_rectangle((mx0+16, 202, mx1-16, 286), radius=11, fill=(29, 25, 44))
+            draw.rounded_rectangle((mx0+28, 216, mx0+76, 264), radius=9, fill=violet)
+            draw.text((mx0+52, 240), "✦", font=self._pfont(21, 800), fill=ivory, anchor="mm")
+            draw.text((mx0+90, 224), "ABYSS PROGRESS DOSSIER", font=self._pfont(11, 800), fill=ivory, anchor="lm")
+            status = f"Deepest descent: Floor {best}"
+            draw.text((mx0+90, 246), status, font=self._pfont(10, 500), fill=(203, 197, 225), anchor="lm")
+            battles = a.total_battles if a and a.total_battles is not None else "—"
+            wins = a.total_wins if a and a.total_wins is not None else "—"
+            draw.text((mx0+90, 264), f"Battles {battles}   ·   Wins {wins}", font=self._pfont(9, 500), fill=(168, 160, 194), anchor="lm")
+            draw.text((mx0+20, 307), "◆  CHAMBER SUMMARY", font=self._pfont(7, 700), fill=violet, anchor="lm")
+            draw.line((mx0+20, 317, mx1-20, 317), fill=(226, 221, 241), width=1)
+            draw.rounded_rectangle((mx0+28, 331, mx0+110, 420), radius=11, fill=(239, 234, 255), outline=(207, 196, 240))
+            draw.rounded_rectangle((mx0+40, 343, mx0+98, 400), radius=9, fill=(110, 89, 204))
+            draw.text((mx0+69, 371), current, font=self._pfont(23, 800), fill=ivory, anchor="mm")
+            draw.text((mx0+69, 409), "FLOOR", font=self._pfont(7, 700), fill=muted, anchor="mm")
+            rows = (("Reached chamber", str(chamber or "—")), ("Total stars", str(stars)), ("Completion", "PERFECT" if stars >= 36 else "IN PROGRESS"))
+            for i, (label, value) in enumerate(rows):
+                y = 344 + i * 27
+                draw.text((mx0+135, y), label, font=self._pfont(10, 500), fill=(76, 71, 96), anchor="lm")
+                draw.text((mx1-28, y), value, font=self._pfont(10, 800), fill=ink, anchor="rm")
+                if i < 2:
+                    draw.line((mx0+135, y+14, mx1-28, y+14), fill=(238, 234, 247), width=1)
+            draw.text((mx0+20, 449), "◆  FLOOR PROGRESS", font=self._pfont(7, 700), fill=violet, anchor="lm")
+            draw.line((mx0+20, 459, mx1-20, 459), fill=(226, 221, 241), width=1)
+            chamber_map = {(c.floor, c.chamber): c.stars for c in (a.chambers or [])}
+            for i, fl in enumerate((9, 10, 11, 12)):
+                x = mx0+28+i*108
+                reached = bool(floor and fl <= floor)
+                draw.rounded_rectangle((x, 475, x+88, 548), radius=9, fill=(239, 234, 255) if reached else (247, 245, 251), outline=(200, 188, 239) if reached else (230, 226, 238))
+                draw.text((x+44, 493), f"FLOOR {fl}", font=self._pfont(8, 700), fill=ink if reached else muted, anchor="mm")
+                known = [chamber_map.get((fl, c)) for c in (1, 2, 3)]
+                if any(v is not None for v in known):
+                    earned = sum(v or 0 for v in known)
+                    marker = "★" * min(3, max(0, round(earned/3)))
+                elif reached:
+                    marker = "CLEARED"
                 else:
-                    rows.append((str(fl), str(ch), "—", "—"))
-        for i, (fl, ch, stars_s, party) in enumerate(rows[:6]):
-            y = 198 + i * 56
-            if i % 2 == 0:
-                draw.rounded_rectangle((564, y - 12, 1224, y + 34), radius=8, fill=(26, 24, 36, 180))
-            draw.text((600, y + 10), fl, font=self._pfont(14, 700), fill=ivory, anchor="mm")
-            draw.text((760, y + 10), ch, font=self._pfont(14, 700), fill=ivory, anchor="mm")
-            gold_col = gold if "★" in stars_s else muted
-            draw.text((900, y + 10), stars_s, font=self._pfont(13, 600), fill=gold_col, anchor="mm")
-            # truncate party to fit
-            max_w = 150
-            f = self._pfont(11, 400)
-            txt = party
-            while draw.textlength(txt, font=f) > max_w and len(txt) > 10:
-                txt = txt[:-2] + "…"
-            draw.text((1076, y + 10), txt, font=f, fill=muted if txt != "Locked" else muted2, anchor="lm")
-            if i < len(rows[:6]) - 1:
-                draw.line((578, y + 34, 1210, y + 34), fill=(40, 38, 52, 120), width=1)
-        draw.line((564, 554, 1224, 554), fill=(60, 56, 78, 140), width=1)
-        # footer stats — most used placeholder when no data
-        draw.text((564, 578), "Most used:  Kazuha  •  Bennett  •  Zhongli", font=self._pfont(11, 400), fill=muted, anchor="lm")
-        fast = f"Fastest: Floor {max_floor_str}  •  —" if max_floor_str != "--" else "Fastest: —"
-        draw.text((564, 598), fast, font=self._pfont(11, 400), fill=muted, anchor="lm")
-        draw.rounded_rectangle((1020, 578, 1224, 608), radius=10, fill=(*accent, 255))
-        draw.text((1122, 593), "VIEW DETAILS →", font=self._pfont(11, 700), fill=(255, 255, 255), anchor="mm")
-        draw.text((564, 640), "Tip:  Stars reset on the 1st & 16th. Use /preabysscard for last cycle.", font=self._pfont(10, 400), fill=muted2, anchor="lm")
+                    marker = "LOCKED"
+                draw.text((x+44, 523), marker, font=self._pfont(8, 700), fill=violet if reached else muted, anchor="mm")
+
+        # Right — compact floor ledger; no invented lineups or rewards.
+        rx0, rx1 = right[0], right[2]
+        draw.text((rx0+18, 31), "GENSHIN IMPACT  ·  ABYSS", font=self._pfont(7, 600), fill=(137, 129, 172), anchor="lm")
+        draw.text((rx0+18, 54), "Floor Details", font=self._pfont(19, 800), fill=ivory, anchor="lm")
+        draw.text((rx1-28, 46), "◇", font=self._pfont(24), fill=(116, 95, 210), anchor="mm")
+        chamber_map = {(c.floor, c.chamber): c.stars for c in (a.chambers if a else [])}
+        y = 84
+        for fl in (12, 11, 10, 9):
+            reached = bool(floor and fl <= floor)
+            active = fl == floor
+            fill = (47, 39, 73) if active else (28, 24, 43)
+            border = violet if active else (47, 42, 65)
+            draw.rounded_rectangle((rx0+14, y, rx1-14, y+108), radius=10, fill=fill, outline=border, width=1)
+            if active:
+                draw.rectangle((rx0+15, y, rx1-15, y+2), fill=violet)
+            draw.text((rx0+52, y+54), str(fl), font=self._pfont(28, 800), fill=ivory if reached else (143, 136, 173), anchor="mm")
+            draw.line((rx0+86, y+12, rx0+86, y+96), fill=(104, 96, 134), width=1)
+            for ch in (1, 2, 3):
+                cy = y+22+(ch-1)*25
+                draw.text((rx0+102, cy), f"Chamber {ch}", font=self._pfont(9, 500), fill=(204, 198, 225), anchor="lm")
+                value = chamber_map.get((fl, ch))
+                if value is not None:
+                    mark = "★" * value + "☆" * (3-value)
+                elif reached and (fl < (floor or 0) or ch <= (chamber or 3)):
+                    mark = "CLEARED"
+                else:
+                    mark = "—"
+                draw.text((rx1-28, cy), mark, font=self._pfont(8, 700), fill=gold if "★" in mark else (132, 125, 160), anchor="rm")
+            y += 118
+        draw.line((rx0+18, 612, rx1-18, 612), fill=(64, 57, 84), width=1)
+        draw.text((rx0+18, 634), "✦  ABYSS RECORD", font=self._pfont(9, 800), fill=ivory, anchor="lm")
+        draw.text((rx0+18, 661), "STARS", font=self._pfont(7, 600), fill=muted, anchor="lm")
+        draw.text((rx0+18, 682), str(stars) if available else "—", font=self._pfont(15, 800), fill=gold, anchor="lm")
+        draw.text((rx0+120, 661), "BATTLES", font=self._pfont(7, 600), fill=muted, anchor="lm")
+        draw.text((rx0+120, 682), str(a.total_battles) if a and a.total_battles is not None else "—", font=self._pfont(15, 800), fill=ivory, anchor="lm")
+        draw.text((rx0+235, 661), "WINS", font=self._pfont(7, 600), fill=muted, anchor="lm")
+        draw.text((rx0+235, 682), str(a.total_wins) if a and a.total_wins is not None else "—", font=self._pfont(15, 800), fill=ivory, anchor="lm")
         return self._to_png(base)
 
     def render_theater_card(self, ctx: TheaterCardContext) -> bytes:
